@@ -39,6 +39,14 @@
   function polyArea(p) { let s = 0; for (let i = 0, n = p.length; i < n; i++) { const a = p[i], b = p[(i + 1) % n]; s += a[0] * b[1] - b[0] * a[1]; } return s / 2; }
   function estHeight(area) { const fl = area < 100 ? 2 : area < 300 ? 3 : area < 800 ? 4 : area < 2000 ? 5 : area < 5000 ? 7 : 10; return fl * 3.3; }
 
+  // 건물 목록: 높이가 없으면(0) 바닥 면적으로 층수를 추정한다
+  function makeBlds(list) {
+    return list.map(b => {
+      const known = b.h > 0;
+      return { p: b.p, h: known ? b.h : estHeight(Math.abs(polyArea(b.p))), est: !known, part: !!b.part };
+    });
+  }
+
   function splitPolys(lens, flat) {
     const out = []; let k = 0;
     for (let i = 0; i < lens.length; i++) { const p = []; for (let j = 0; j < lens[i]; j++, k += 2) p.push([flat[k], flat[k + 1]]); out.push(p); }
@@ -97,11 +105,7 @@
     // 건물
     const bv = cum2(raw.bv);
     const bpolys = splitPolys(raw.bl, bv);
-    A.blds = bpolys.map((p, i) => {
-      const area = Math.abs(polyArea(p));
-      const h = raw.bh[i] > 0 ? raw.bh[i] : estHeight(area);
-      return { p, h, est: !(raw.bh[i] > 0), part: raw.bp[i] === '1' };
-    });
+    A.blds = makeBlds(bpolys.map((p, i) => ({ p, h: raw.bh[i], part: raw.bp[i] === '1' })));
     // 녹지·물
     const gpolys = splitPolys(raw.gl, cum2(raw.gv));
     A.green = gpolys.map((p, i) => ({ t: raw.gt[i], p }));
@@ -318,11 +322,13 @@
     return { night: false, polys };
   }
 
-  function makeRaster(A, cell) {
+  function makeRaster(A, cell, reuse) {
     const pad = 60, b = A.box;
     const x0 = b[0] - pad, y0 = b[1] - pad;
     const W = Math.ceil((b[2] - b[0] + 2 * pad) / cell), H = Math.ceil((b[3] - b[1] + 2 * pad) / cell);
-    return { x0, y0, cell, W, H, data: new Uint8Array(W * H) };
+    let data;
+    if (reuse && reuse.length === W * H) { data = reuse; data.fill(0); } else data = new Uint8Array(W * H);
+    return { x0, y0, cell, W, H, data };
   }
   function fillConvex(R, pts, val) {
     let ymin = Infinity, ymax = -Infinity;
@@ -357,7 +363,7 @@
   function samples(A) {
     if (A.cache.samples) return A.cache.samples;
     const G = A.G;
-    const mask = makeRaster(A, CELL);
+    const mask = makeRaster(A, A.cell || CELL);
     for (let e = 0; e < G.E; e++) {
       const t = G.et[e]; if (t !== 'M' && t !== 'm') continue;
       const a = G.ea[e], b = G.eb[e], ax = G.X[a], ay = G.Y[a], bx = G.X[b], by = G.Y[b], L = G.len[e];
@@ -387,8 +393,8 @@
     return (A.cache.samples = { PX: Float64Array.from(PX), PY: Float64Array.from(PY), OK: Uint8Array.from(OK), start, cnt, sides });
   }
 
-  function shadowRaster(A, sun, opts) {
-    const R = makeRaster(A, CELL);
+  function shadowRaster(A, sun, opts, reuse) {
+    const R = makeRaster(A, A.cell || CELL, reuse);
     const sp = shadowPolys(A, sun, opts);
     if (sp.night) { R.data.fill(1); R.night = true; return R; }
     for (const p of sp.polys) fillConvex(R, p, 1);
@@ -420,10 +426,8 @@
   }
 
   // 겨울: 9~16시 정시 8번 그림자로 하루 일조(시간)와 응달(일조 2시간 미만) 비율
-  function edgeSun(A, rasters) {
+  function edgeSun(A, sunCnt) {
     const S = samples(A), G = A.G;
-    const sunCnt = new Uint8Array(S.PX.length);
-    for (const R of rasters) for (let i = 0; i < S.PX.length; i++) if (rasterAt(R, S.PX[i], S.PY[i]) !== 1) sunCnt[i]++;
     const sunH = new Float64Array(G.E), ice = new Float64Array(G.E);
     for (let e = 0; e < G.E; e++) {
       const n = S.cnt[e], st = S.start[e];
@@ -473,9 +477,15 @@
   function winterSun(A) {
     if (A.cache.winter) return A.cache.winter;
     const [lat, lon] = A.toLL(0, 0);
-    const rasters = [];
-    for (let h = 9; h <= 16; h++) rasters.push(shadowRaster(A, sunPos(kst(WINTER.y, WINTER.m, WINTER.d, h, 0), lat, lon), { evergreenOnly: true }));
-    return (A.cache.winter = edgeSun(A, rasters));
+    const S = samples(A), sunCnt = new Uint8Array(S.PX.length);
+    // 시각마다 격자 하나를 다시 써서 메모리를 아낀다(결과는 8장을 한꺼번에 만든 것과 같다)
+    let buf = null;
+    for (let h = 9; h <= 16; h++) {
+      const R = shadowRaster(A, sunPos(kst(WINTER.y, WINTER.m, WINTER.d, h, 0), lat, lon), { evergreenOnly: true }, buf);
+      buf = R.night ? buf : R.data;
+      for (let i = 0; i < S.PX.length; i++) if (rasterAt(R, S.PX[i], S.PY[i]) !== 1) sunCnt[i]++;
+    }
+    return (A.cache.winter = edgeSun(A, sunCnt));
   }
 
   function metricOf(A, mode, r, ctx) {
@@ -562,5 +572,5 @@
     return { worth: false };
   }
 
-  return { F, FOLIAGE, MODES, score, speciesFlags, crownOf, decodeArea, nearestNode, dijkstra, routeCoords, treesNear, viaNames, sunPos, kst, shadowPolys, plan, summerShade, winterSun, edgeCount, SUMMER, WINTER };
+  return { F, FOLIAGE, MODES, score, speciesFlags, crownOf, decodeArea, makeBlds, nearestNode, dijkstra, routeCoords, treesNear, viaNames, sunPos, kst, shadowPolys, plan, summerShade, winterSun, edgeCount, SUMMER, WINTER };
 });

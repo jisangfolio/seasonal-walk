@@ -7,11 +7,13 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  // 주 서버(overpass-api.de)를 먼저 쓰고, 막히거나 늦으면 나머지에 묻는다
   const ENDPOINTS = [
     'https://overpass-api.de/api/interpreter',
-    'https://overpass.private.coffee/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter'
   ];
+  const STATUS = 'https://overpass-api.de/api/status';
   const HW_RE = '^(primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|footway|pedestrian|path|cycleway|track|steps)$';
 
   // 위도에 따른 1도당 미터(실험 01~04, 미리 받은 지역과 같은 식)
@@ -80,43 +82,86 @@
     const P = '(poly:"' + polyStr(ll) + '")';
     return '[out:json][timeout:120];(way["building"]' + P + ';way["building:part"]' + P + ';);out tags geom qt;relation["building"]' + P + ';out body geom qt;';
   }
+  // 길과 건물을 한 번에(여름·겨울 모드에서 처음 받을 때). 응답은 splitBoth로 나눈다.
+  function qBoth(llWays, llBlds) {
+    const P = '(poly:"' + polyStr(llBlds) + '")';
+    return '[out:json][timeout:150];way["highway"~"' + HW_RE + '"](poly:"' + polyStr(llWays) + '");out body geom qt;' +
+      '(way["building"]' + P + ';way["building:part"]' + P + ';);out tags geom qt;relation["building"]' + P + ';out body geom qt;';
+  }
+  function splitBoth(json) {
+    const hw = [], bld = [];
+    for (const el of (json && json.elements) || []) {
+      if (el.type === 'way' && el.nodes && el.tags && el.tags.highway) hw.push(el); else bld.push(el);
+    }
+    return { hw: { osm3s: json.osm3s, elements: hw }, bld: { elements: bld } };
+  }
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   function abortError() { const e = new Error('취소됐어요'); e.name = 'AbortError'; return e; }
 
-  // 서버 셋을 돌아가며 다시 묻는다. onRetry(횟수, 이유)로 진행 상황을 알린다.
-  // 한 서버는 IP마다 동시에 쓸 수 있는 자리가 적어서(429), 질의마다 시작 서버를 돌려 가며 고른다.
-  let rr = 0;
+  // 주 서버는 IP마다 동시에 2개까지만 받아서, 바로 앞 질의가 끝난 직후에는 429로 거절할 때가 있다.
+  // 먼저 빈자리를 보고, 곧 나면 잠깐 기다리고, 오래 걸리면 다른 서버부터 묻는다.
+  async function slotWait() {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 3000);
+    try {
+      const txt = await (await fetch(STATUS, { signal: ctl.signal })).text();
+      const m = /(\d+) slots? available now/.exec(txt);
+      if (m && +m[1] > 0) return 0;
+      const secs = [...txt.matchAll(/in (\d+) seconds?/g)].map(x => +x[1]);
+      return secs.length ? Math.min(...secs) : 0;
+    } catch (e) { return 0; } finally { clearTimeout(t); }
+  }
+
+  // 서버에 묻는다. 한 서버가 hedge(ms) 안에 답이 없으면 다음 서버에도 같이 묻고, 먼저 온 답을 쓴다.
+  // 실패하면 바로 다음 서버로 넘어간다. onRetry(횟수, 이유), onWait(초)로 진행 상황을 알린다.
   async function overpass(q, o) {
     o = o || {};
-    const eps = o.endpoints || ENDPOINTS, tries = o.tries || 5;
-    const start = o.start != null ? o.start : (rr++ % eps.length);
-    let last = '';
-    for (let a = 0; a < tries; a++) {
+    let order = (o.endpoints || ENDPOINTS).slice();
+    if (!o.endpoints) {
+      const w = await slotWait();
       if (o.signal && o.signal.aborted) throw abortError();
-      const url = eps[(start + a) % eps.length];
-      const ctl = new AbortController();
-      const timer = setTimeout(() => ctl.abort(), o.timeout || 75000);
-      const onAbort = () => ctl.abort();
-      if (o.signal) o.signal.addEventListener('abort', onAbort);
-      try {
-        const r = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, signal: ctl.signal });
-        const t = await r.text();
-        if (r.ok && /^\s*\{/.test(t)) {
-          const j = JSON.parse(t);
-          if (j.remark && /error|timeout|runtime|memory/i.test(j.remark)) last = '서버 시간 초과';
-          else return j;
-        } else last = r.status === 429 ? '요청이 많음(429)' : r.status === 504 ? '서버 시간 초과(504)' : 'HTTP ' + r.status;
-      } catch (e) {
-        if (o.signal && o.signal.aborted) throw abortError();
-        last = e.name === 'AbortError' ? '응답 없음' : '연결 실패';
-      } finally {
-        clearTimeout(timer);
-        if (o.signal) o.signal.removeEventListener('abort', onAbort);
-      }
-      if (o.onRetry) o.onRetry(a + 1, last);
-      if (a + 1 < tries) await sleep(1200 * (a + 1));
+      if (w > 0 && w <= 12) { if (o.onWait) o.onWait(w); await sleep(w * 1000 + 300); }
+      else if (w > 12) order = order.slice(1).concat(order[0]);
     }
-    const err = new Error(last || 'Overpass 오류'); err.name = 'OverpassError'; throw err;
+    const maxTries = o.tries || order.length + 1, hedge = o.hedge || 15000, perTry = o.timeout || 60000;
+    return new Promise((resolve, reject) => {
+      let started = 0, running = 0, done = false, last = '', hedgeTimer = null;
+      const ctls = [];
+      const finish = (err, val) => {
+        if (done) return;
+        done = true; clearTimeout(hedgeTimer);
+        for (const c of ctls) c.abort();
+        if (o.signal) o.signal.removeEventListener('abort', onAbort);
+        if (err) reject(err); else resolve(val);
+      };
+      const onAbort = () => finish(abortError());
+      if (o.signal) { if (o.signal.aborted) { finish(abortError()); return; } o.signal.addEventListener('abort', onAbort); }
+      const launch = () => {
+        if (done || started >= maxTries) return;
+        const url = order[started % order.length];
+        started++; running++;
+        const ctl = new AbortController(); ctls.push(ctl);
+        const timer = setTimeout(() => ctl.abort(), perTry);
+        clearTimeout(hedgeTimer); hedgeTimer = setTimeout(() => { if (done || started >= maxTries) return; if (o.onRetry) o.onRetry(started, '응답이 늦음'); launch(); }, hedge);
+        (async () => {
+          let failed = false;
+          try {
+            const r = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, signal: ctl.signal });
+            const t = await r.text();
+            if (r.ok && /^\s*\{/.test(t)) {
+              const j = JSON.parse(t);
+              if (j.remark && /error|timeout|runtime|memory/i.test(j.remark)) { failed = true; last = '서버 시간 초과'; } else finish(null, j);
+            } else { failed = true; last = r.status === 429 ? '요청이 많음(429)' : r.status === 504 ? '서버 시간 초과(504)' : 'HTTP ' + r.status; }
+          } catch (e) {
+            failed = true; last = e.name === 'AbortError' ? '응답 없음' : '연결 실패';
+          } finally { clearTimeout(timer); running--; }
+          if (done || !failed) return;
+          if (o.onRetry) o.onRetry(started, last);
+          if (started < maxTries) { clearTimeout(hedgeTimer); setTimeout(launch, 600); }
+          else if (running === 0) { const err = new Error(last || 'Overpass 오류'); err.name = 'OverpassError'; finish(err); }
+        })();
+      };
+      launch();
+    });
   }
 
   // ---------------------------------------------------------------- 길
@@ -314,5 +359,5 @@
     return A.blds.length;
   }
 
-  return { ENDPOINTS, kOf, distM, corridor, bboxOf, inPoly, covers, qWays, qBlds, overpass, wayType, walkable, halfWidth, bldHeight, bldPolys, joinRings, cellKeys, treesIn, buildArea, attachBuildings };
+  return { ENDPOINTS, kOf, distM, corridor, bboxOf, inPoly, covers, qWays, qBlds, qBoth, splitBoth, overpass, wayType, walkable, halfWidth, bldHeight, bldPolys, joinRings, cellKeys, treesIn, buildArea, attachBuildings };
 });

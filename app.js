@@ -709,24 +709,30 @@
     let n = 0;
     for (let i = 0; i < areas.length; i++) if (areas[i].kind === 'osm' && ++n > 3 && areas[i] !== cur) { areas.splice(i, 1); i--; }
   }
+  // 서버 진행 상황을 화면 문구로
+  const netHooks = (t0, d, signal) => ({
+    signal,
+    onWait: (w) => progress('OpenStreetMap 서버 차례를 기다리고 있어요(' + w + '초)', t0, d),
+    onRetry: (n, why) => progress(why === '응답이 늦음' ? '서버 응답이 늦어서 다른 서버에도 묻고 있어요' : '서버가 바빠서 다른 서버에 다시 묻고 있어요 (' + why + ')', t0, d)
+  });
   async function loadOsm(a, b) {
     const cor = O.corridor(a, b);
     if (pending && O.covers(pending.cov, O.corridor(a, b, 0, true).ll)) return pending.promise;
     if (pending) pending.ctl.abort();
     const ctl = new AbortController();
-    const t0 = Date.now();
+    const t0 = Date.now(), withBld = needsBld(S.mode);
     const promise = (async () => {
-      progress('OpenStreetMap에서 길 정보를 받고 있어요', t0, cor.d);
+      progress(withBld ? 'OpenStreetMap에서 길과 건물 정보를 받고 있어요' : 'OpenStreetMap에서 길 정보를 받고 있어요', t0, cor.d);
       const bb = O.bboxOf(cor.ll, 40), keys = O.cellKeys(SEOUL.grid, bb).filter(k => SEOUL.cells.includes(k));
-      const [hw] = await Promise.all([
-        O.overpass(O.qWays(cor.ll), { signal: ctl.signal, onRetry: (n, why) => progress('서버가 바빠서 다시 묻고 있어요 (' + why + ', ' + n + '번째)', t0, cor.d) }),
-        ensureCells(keys)
-      ]);
+      const q = withBld ? O.qBoth(cor.ll, O.corridor(a, b, 120).ll) : O.qWays(cor.ll);
+      const [json] = await Promise.all([O.overpass(q, netHooks(t0, cor.d, ctl.signal)), ensureCells(keys)]);
+      const parts = withBld ? O.splitBoth(json) : { hw: json, bld: null };
       progress('가로수를 길에 붙이고 있어요', t0, cor.d);
       await nextFrame();
       const trees = O.treesIn(keys.map(k => window.SW_TREES[k]), bb);
-      const A = O.buildArea(E, { id: 'osm' + (++osmSeq), name: '고른 범위', cor, hw, trees });
+      const A = O.buildArea(E, { id: 'osm' + (++osmSeq), name: '고른 범위', cor, hw: parts.hw, trees });
       if (!A.G.E) throw Object.assign(new Error('이 범위에는 걸을 수 있는 길 정보가 없어요'), { name: 'EmptyArea' });
+      if (parts.bld) O.attachBuildings(E, A, parts.bld);
       A.ends = [{ lat: a.lat, lon: a.lon }, { lat: b.lat, lon: b.lon }];
       A.loadMs = Date.now() - t0;
       areas.unshift(A); trimAreas();
@@ -740,7 +746,7 @@
       const t0 = Date.now(), ll = O.corridor(A.ends[0], A.ends[1], 120).ll;
       A.bldPromise = (async () => {
         progress('그림자 계산에 쓸 건물 정보를 받고 있어요', t0);
-        const j = await O.overpass(O.qBlds(ll), { onRetry: (n, why) => progress('서버가 바빠서 다시 묻고 있어요 (' + why + ', ' + n + '번째)', t0) });
+        const j = await O.overpass(O.qBlds(ll), netHooks(t0));
         O.attachBuildings(E, A, j);
         A.P = null;
       })();
@@ -748,7 +754,8 @@
     }
     return A.bldPromise;
   }
-  const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+  // 화면을 한 번 그린 뒤 계속(탭이 가려져 그리기가 멈춰도 0.1초 뒤에는 계속한다)
+  const nextFrame = () => new Promise(r => { let done = false; const go = () => { if (!done) { done = true; setTimeout(r, 0); } }; requestAnimationFrame(go); setTimeout(go, 100); });
 
   // ---------------------------------------------------------------- 계산
   let timer = null, runId = 0, tick = null;

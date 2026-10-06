@@ -114,7 +114,11 @@ button,select,input{font:inherit;color:inherit}
 .chips:empty{display:none}
 .chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:.86rem;cursor:pointer;color:var(--muted)}
 .chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
-.chip:disabled{opacity:.6;cursor:progress}
+.chip:disabled{opacity:.5;cursor:not-allowed}
+#gps:disabled{cursor:progress}
+.optrow{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap}
+.optrow .lab{font-size:.86rem;color:var(--muted)}
+#sum-day .fine,#win-day .fine{align-self:center}
 .row{display:grid;gap:8px}
 .row[hidden]{display:none}
 .slider{display:grid;grid-template-columns:auto minmax(0,1fr) 3.4rem;align-items:center;gap:10px;font-size:.86rem;color:var(--muted)}
@@ -212,34 +216,40 @@ button,select,input{font:inherit;color:inherit}
         <p class="fine" id="today-note"></p>
         <div class="chips" id="submodes" role="group" aria-label="세부 모드"></div>
         <div id="time-row" class="row" hidden>
+          <div class="chips" id="sum-day" role="group" aria-label="그림자 날짜"></div>
           <div class="chips" id="time-chips"><button type="button" class="chip" data-h="8.5">출근 08:30</button><button type="button" class="chip" data-h="13">점심 13:00</button><button type="button" class="chip" data-h="18.5">퇴근 18:30</button></div>
           <label class="slider">시각 <input type="range" id="hour" min="7" max="19.5" step="0.5"><output id="hour-out"></output></label>
         </div>
         <div id="winter-row" class="row" hidden>
+          <div class="chips" id="win-day" role="group" aria-label="그림자 날짜"></div>
           <label class="slider">지도 그림자 <input type="range" id="whour" min="9" max="16" step="1"><output id="whour-out"></output></label>
         </div>
         <p class="note" id="season-note"></p>
+        <p class="fine" id="season-status"></p>
         <p class="fine" id="sun-info"></p>
         <label class="slider">더 걸어도 되는 거리 <input type="range" id="cap" min="0" max="60" step="5"><output id="cap-out"></output></label>
+        <div class="optrow"><span class="lab">걷기 옵션</span><div class="chips" id="opts" role="group" aria-label="걷기 옵션"><button type="button" class="chip" data-opt="noSteps" aria-pressed="false">계단 피하기</button><button type="button" class="chip" data-opt="quiet" aria-pressed="false">큰길 피하기</button></div></div>
       </section>
       <section class="sec" id="result" aria-live="polite"><p class="empty">데이터를 불러오고 있어요.</p></section>
       <details class="about">
         <summary>어떻게 계산하나요</summary>
         <dl>
-          <dt>길과 건물</dt><dd>출발지와 도착지를 고르면, 둘을 잇는 띠 모양 범위(옆으로 거리의 절반 + 150m)의 걸을 수 있는 길을 OpenStreetMap에서 그때그때 받아요. 지하도·실내·통행 금지 길과 자동차 전용도로는 빼요. 여름·겨울 모드는 그림자를 위해 건물도 받아요. 종로·광화문과 여의도는 미리 받아 둔 데이터를 써요.</dd>
+          <dt>길과 건물</dt><dd>서울 전체의 걸을 수 있는 길(OpenStreetMap)과 건물(국토교통부 GIS건물통합정보, 층수·높이 포함)을 4~5km 격자 파일로 미리 만들어 두고, 출발·도착을 잇는 띠 모양 범위만 읽어요. 지하도·실내·통행 금지 길과 자동차 전용도로는 빼요. 건물 높이는 건축물대장의 높이를 쓰고, 없으면 지상층수 × 3.3m, 둘 다 없으면 바닥 면적으로 추정해요.</dd>
           <dt>나무와 길</dt><dd>서울시 가로수 28만 7천여 그루를 4~5km 격자 파일로 나눠 두고, 필요한 칸만 읽어요. 나무마다 25m 안에서 가장 가까운 보행 구간에 붙이고, 8m 안이면 그 구간에도 붙여요. 카드의 그루 수는 경로 선에서 15m 안에 있는 가로수예요.</dd>
           <dt>꽃길·단풍길</dt><dd><code>구간 길이 × max(바닥값, 1 − K × 나무 밀도)</code>로 나무가 촘촘한 구간을 짧게 쳐줘요. 단풍길은 은행 암나무 한 그루마다 60m를 더해요.</dd>
           <dt>은행 냄새 피하기</dt><dd><code>구간 길이 + P × 은행 암나무 수</code>. 암나무 표시는 자치구마다 달라서 없는 곳도 있어요.</dd>
           <dt>그늘길</dt><dd>건물 바닥을 해 반대쪽으로 높이만큼 늘린 그림자와 가로수 수관 그림자를 격자로 그리고, 3m 간격 점마다 그늘인지 봐요. 차도는 양쪽 보도 중 그늘진 쪽을 걷는다고 봐요. 비용은 <code>구간 길이 × (1 + w × 해 드는 비율)</code>이에요.</dd>
           <dt>볕길</dt><dd>1월 15일 9~16시 정시 8번의 그림자로 하루 볕 드는 시간을 세요. 2시간 미만이면 응달이에요. 겨울엔 잎이 지므로 상록수 그림자만 넣어요.</dd>
-          <dt>경로 고르기</dt><dd>가중치를 여러 값으로 바꿔 가며 경로 후보를 만들어요. 우회 한도 안에서 효과가 가장 큰 후보의 90% 이상을 내는 경로 가운데 가장 짧은 것을 골라요. 걷는 시간은 분당 75m 기준이에요.</dd>
-          <dt>건물 높이</dt><dd>OpenStreetMap의 높이·층수(층당 3.3m)를 쓰고, 없으면 바닥 면적으로 2~10층을 추정해요. 서울 건물은 대부분 추정값이에요.</dd>
-          <dt>한계</dt><dd>경사, 가게 차양과 아케이드, 실제 눈과 제설, 공원 안 나무(가로수 데이터에 없음), 지하보도는 반영하지 않아요. OpenStreetMap에 없는 길은 계산에 들어가지 않아요. 공개 서버를 쓰므로 붐빌 때는 느리거나 실패할 수 있어요.</dd>
+          <dt>경로 고르기</dt><dd>가중치를 여러 값으로 바꿔 가며 경로 후보를 만들어요. 우회 한도 안에서 효과가 가장 큰 후보의 90% 이상을 내는 경로 가운데 가장 짧은 것을 골라요. 걷는 시간은 분당 75m 기준이에요. 출발·도착은 둘레 120m 안 보행로 지점 가운데 <code>경로 길이 + 3 × 떨어진 거리</code>가 가장 작은 곳에 붙여요. 역 좌표가 하천·철길·큰길 건너편 길에 붙어 크게 돌아가는 일을 줄이려는 거예요.</dd>
+          <dt>날짜와 날씨</dt><dd>그늘길은 4~10월, 볕길은 11~3월에 오늘 날짜의 해 위치로 계산할 수 있고, 그 밖에는 한여름(7월 20일)·한겨울(1월 15일)로 계산해요. 처음 열 때 오늘 서울 날씨(Open-Meteo)를 보고 더우면 그늘길, 눈이 왔거나 영하로 추우면 볕길을 먼저 골라 둬요.</dd>
+          <dt>걷기 옵션</dt><dd>계단 피하기는 계단 구간을 40배 길게 쳐서 다른 길이 있으면 피해요. 큰길 피하기는 간선도로 옆을 1.6배, 4차로 이상 길을 1.3배로 쳐요. 최단 경로도 같은 기준으로 찾아요.</dd>
+          <dt>한계</dt><dd>경사, 가게 차양과 아케이드, 실제 눈과 제설, 공원 안 나무(가로수 데이터에 없음), 지하보도는 반영하지 않아요. OpenStreetMap에 없는 길은 계산에 들어가지 않아요. 지도 파일은 만든 날 기준이라 그 뒤에 바뀐 길은 모를 수 있어요.</dd>
         </dl>
       </details>
       <footer class="foot">
         <p>가로수: 서울특별시 「서울시 가로수 위치 정보」(2026년 9월 30일 기준). 위도·경도·수종·노선 값을 바꾸지 않고 그대로 담았어요. 공공누리 제4유형(출처표시·상업적 이용금지·변경금지).</p>
-        <p>지도·도로·건물·역: © OpenStreetMap contributors, ODbL. 지도 타일은 OpenStreetMap 표준 타일, 장소 검색은 Nominatim을 써요. 벚꽃 개화일: 기상청 보도자료(2026년 3월 29일).</p>
+        <p>건물 높이: 국토교통부 「GIS건물통합정보」(2026년 9월 9일 기준, 브이월드), 공공누리 제1유형.</p>
+        <p>지도·도로·역: © OpenStreetMap contributors, ODbL. 지도 타일은 OpenStreetMap 표준 타일, 장소 검색은 Nominatim을 써요. 날씨: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>(CC BY 4.0). 벚꽃 개화일: 기상청 보도자료(2026년 3월 29일). 단풍 시기: 웨더아이 2026 단풍 예상(2026년 9월 4일).</p>
         <p>개인 실험용 비상업 프로토타입이에요. 실제 길 상태와 다를 수 있어요.</p>
       </footer>
     </aside>

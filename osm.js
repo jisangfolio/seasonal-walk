@@ -359,5 +359,126 @@
     return A.blds.length;
   }
 
-  return { ENDPOINTS, kOf, distM, corridor, bboxOf, inPoly, covers, qWays, qBlds, qBoth, splitBoth, overpass, wayType, walkable, halfWidth, bldHeight, bldPolys, joinRings, cellKeys, treesIn, buildArea, attachBuildings };
+  // ---------------------------------------------------------------- 미리 만든 격자 파일(길·건물)
+  // 길 격자 한 칸: Overpass 응답(칸 범위) → 압축 객체.
+  // ids: OSM 길 번호(오름차순 차이값), t: 종류 글자, n: 이름 번호, w: 차도 반폭, l: 점 개수,
+  // c: 위도·경도 ×1e6 정수의 차이값을 길 순서대로 이어 붙인 흐름. 같은 점(공유 노드)은 같은 정수가 된다.
+  function encodeWays(json) {
+    const items = [];
+    for (const el of (json && json.elements) || []) {
+      if (el.type !== 'way' || !el.geometry || !el.nodes || el.nodes.length !== el.geometry.length || el.nodes.length < 2) continue;
+      const tg = el.tags || {};
+      const ty = wayType(tg);
+      if (!ty || !walkable(tg)) continue;
+      const pts = [];
+      let bad = false;
+      for (const g of el.geometry) { if (!g) { bad = true; break; } pts.push([Math.round(g.lat * 1e6), Math.round(g.lon * 1e6)]); }
+      if (bad || pts.length < 2) continue;
+      items.push({ id: el.id, ty, nm: (tg.name || '').trim(), hw: halfWidth(tg, ty), pts });
+    }
+    items.sort((a, b) => a.id - b.id);
+    const names = [], nameIdx = new Map(), ids = [], n = [], w = [], l = [], c = [];
+    let t = '', pid = 0, pla = 0, plo = 0;
+    for (const it of items) {
+      if (it.id === pid) continue;
+      ids.push(it.id - pid); pid = it.id;
+      t += it.ty;
+      let ni = -1;
+      if (it.nm) { ni = nameIdx.get(it.nm); if (ni === undefined) { ni = names.length; names.push(it.nm); nameIdx.set(it.nm, ni); } }
+      n.push(ni); w.push(it.hw); l.push(it.pts.length);
+      for (const p of it.pts) { c.push(p[0] - pla, p[1] - plo); pla = p[0]; plo = p[1]; }
+    }
+    return { v: 1, osm: (json && json.osm3s && json.osm3s.timestamp_osm_base) || '', names, ids, t, n, w, l, c };
+  }
+  function eachWay(cell, cb) {
+    let id = 0, k = 0, la = 0, lo = 0;
+    for (let i = 0; i < cell.ids.length; i++) {
+      id += cell.ids[i];
+      const cnt = cell.l[i], lats = new Array(cnt), lons = new Array(cnt);
+      for (let j = 0; j < cnt; j++) { la += cell.c[k++]; lo += cell.c[k++]; lats[j] = la; lons[j] = lo; }
+      cb(id, cell.t[i], cell.n[i] < 0 ? '' : cell.names[cell.n[i]], cell.w[i], lats, lons);
+    }
+  }
+  // 건물 격자 한 칸: h(높이 0.1m 단위, 0이면 모름), l(꼭짓점 수), c(위도·경도 ×1e6 차이값 흐름, 바깥 고리만, 닫는 점 없음)
+  function eachBld(cell, cb) {
+    let k = 0, la = 0, lo = 0;
+    for (let i = 0; i < cell.l.length; i++) {
+      const cnt = cell.l[i], lats = new Array(cnt), lons = new Array(cnt);
+      for (let j = 0; j < cnt; j++) { la += cell.c[k++]; lo += cell.c[k++]; lats[j] = la; lons[j] = lo; }
+      cb(cell.h[i] / 10, lats, lons);
+    }
+  }
+
+  // 미리 만든 격자 파일들로 지역을 만든다. o: {id, name, cor, bb([남,서,북,동]), ways:[칸], blds:[칸]|null, trees}
+  function assembleArea(E, o) {
+    const lat0 = o.cor.lat0, lon0 = o.cor.lon0, k = kOf(lat0), bb = o.bb;
+    const s6 = bb[0] * 1e6, w6 = bb[1] * 1e6, n6 = bb[2] * 1e6, e6 = bb[3] * 1e6;
+    const seen = new Set(), nodeIdx = new Map(), NX = [], NY = [];
+    const wt = [], wn = [], wh = [], wl = [], WV = [], names = [], nameIdx = new Map();
+    let osm = '', used = 0;
+    for (const cell of o.ways || []) {
+      if (!cell) continue;
+      if (cell.osm > osm) osm = cell.osm;
+      eachWay(cell, (id, ty, nm, hw, lats, lons) => {
+        if (seen.has(id)) return;
+        let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+        for (let j = 0; j < lats.length; j++) { if (lats[j] < a) a = lats[j]; if (lats[j] > b) b = lats[j]; if (lons[j] < c) c = lons[j]; if (lons[j] > d) d = lons[j]; }
+        if (b < s6 || a > n6 || d < w6 || c > e6) return;
+        seen.add(id);
+        const idx = [];
+        for (let j = 0; j < lats.length; j++) {
+          const key = lats[j] * 2e8 + lons[j];
+          let nI = nodeIdx.get(key);
+          if (nI === undefined) { nI = NX.length; nodeIdx.set(key, nI); NX.push(Math.round((lons[j] / 1e6 - lon0) * k.kx * 100) / 100); NY.push(Math.round((lats[j] / 1e6 - lat0) * k.ky * 100) / 100); }
+          if (idx[idx.length - 1] !== nI) idx.push(nI);
+        }
+        if (idx.length < 2) return;
+        let ni = -1;
+        if (nm) { ni = nameIdx.get(nm); if (ni === undefined) { ni = names.length; names.push(nm); nameIdx.set(nm, ni); } }
+        wt.push(ty); wn.push(ni); wh.push(hw); wl.push(idx.length);
+        for (const v of idx) WV.push(v);
+        used++;
+      });
+    }
+    const delta = (arr) => { const out = new Array(arr.length); let p = 0; for (let i = 0; i < arr.length; i++) { out[i] = arr[i] - p; p = arr[i]; } return out; };
+    const toX = (lon) => (lon - lon0) * k.kx, toY = (lat) => (lat - lat0) * k.ky;
+    const xy = o.cor.ll.map(p => [toX(p[1]), toY(p[0])]);
+    const box = [Math.floor(Math.min(...xy.map(p => p[0]))), Math.floor(Math.min(...xy.map(p => p[1]))), Math.ceil(Math.max(...xy.map(p => p[0]))), Math.ceil(Math.max(...xy.map(p => p[1])))];
+    const tr = o.trees || { sp: [], rd: [], tla: [], tlo: [], ts: [], tr: [] };
+    const raw = {
+      v: 3, id: o.id, name: o.name, lat0, lon0, kx: k.kx, ky: k.ky, box, osm,
+      names, nx: delta(NX), ny: delta(NY), wt: wt.join(''), wn, wh, wl, wv: delta(WV),
+      bh: [], bp: '', bl: [], bv: [], gt: '', gl: [], gv: [], lw: [], ll: [], lv: [], st: [], lm: [],
+      sp: tr.sp, rd: tr.rd, tla: tr.tla, tlo: tr.tlo, ts: tr.ts, tr: tr.tr
+    };
+    const A = E.decodeArea(raw);
+    const areaKm2 = (box[2] - box[0]) * (box[3] - box[1]) / 1e6;
+    A.cell = areaKm2 > 9 ? 2 : 1.5;
+    A.kind = 'osm'; A.baked = true; A.cov = o.cor.ll; A.hasBld = false; A.wayCount = used;
+    if (o.blds) attachBakedBuildings(E, A, o.blds, o.bldBB || bb);
+    return A;
+  }
+  // 미리 만든 건물 칸을 붙인다(무게중심이 범위 안인 건물만)
+  function attachBakedBuildings(E, A, cells, bb) {
+    const s6 = bb[0] * 1e6, w6 = bb[1] * 1e6, n6 = bb[2] * 1e6, e6 = bb[3] * 1e6;
+    const list = [];
+    for (const cell of cells) {
+      if (!cell) continue;
+      eachBld(cell, (h, lats, lons) => {
+        let sa = 0, so = 0;
+        for (let j = 0; j < lats.length; j++) { sa += lats[j]; so += lons[j]; }
+        sa /= lats.length; so /= lons.length;
+        if (sa < s6 || sa > n6 || so < w6 || so > e6) return;
+        const p = new Array(lats.length);
+        for (let j = 0; j < lats.length; j++) p[j] = A.toXY(lats[j] / 1e6, lons[j] / 1e6);
+        list.push({ p, h, part: false });
+      });
+    }
+    A.blds = E.makeBlds(list);
+    A.hasBld = true; A.bldSrc = 'baked';
+    for (const key of Object.keys(A.cache)) if (/^shade|^winter/.test(key)) delete A.cache[key];
+    return A.blds.length;
+  }
+
+  return { ENDPOINTS, kOf, distM, corridor, bboxOf, inPoly, covers, qWays, qBlds, qBoth, splitBoth, overpass, wayType, walkable, halfWidth, bldHeight, bldPolys, joinRings, cellKeys, treesIn, buildArea, attachBuildings, encodeWays, eachWay, eachBld, assembleArea, attachBakedBuildings };
 });

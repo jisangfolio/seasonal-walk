@@ -230,6 +230,54 @@
     return { nodes, edges, len, key: edges.join(',') };
   }
 
+  // 출발·도착을 길에 붙인다. 가장 가까운 노드만 보지 않고 둘레 노드들 중
+  // (길 위 거리 + K × 길까지 떨어진 거리)가 가장 작은 짝을 고른다(여러 출발점에서 한 번에 도는 다익스트라).
+  // 역 좌표가 하천·철길·중앙분리대 건너편 길에 붙어 크게 돌아가는 일을 막는다.
+  function snapEnds(A, ax, ay, bx, by, opts) {
+    opts = opts || {};
+    const G = A.G, K = opts.k || 3;
+    const na = nearestNode(A, ax, ay), nb = nearestNode(A, bx, by);
+    if (na < 0 || nb < 0) return null;
+    const offOf = (n, x, y) => Math.hypot(G.X[n] - x, G.Y[n] - y);
+    const plain = { a: na, b: nb, offA: offOf(na, ax, ay), offB: offOf(nb, bx, by) };
+    const R = Math.min(opts.radius || 120, Math.max(30, Math.hypot(bx - ax, by - ay) / 4));
+    const ra = Math.max(R, plain.offA + 30), rb = Math.max(R, plain.offB + 30);
+    const dist = new Float64Array(G.N).fill(Infinity), from = new Int32Array(G.N).fill(-1);
+    let hc = new Float64Array(256), hn = new Int32Array(256), size = 0, popC = 0;
+    const push = (c, n) => {
+      if (size === hc.length) { const c2 = new Float64Array(size * 2); c2.set(hc); hc = c2; const n2 = new Int32Array(size * 2); n2.set(hn); hn = n2; }
+      let i = size++;
+      while (i > 0) { const p = (i - 1) >> 1; if (hc[p] <= c) break; hc[i] = hc[p]; hn[i] = hn[p]; i = p; }
+      hc[i] = c; hn[i] = n;
+    };
+    const pop = () => {
+      const c = hc[0], n = hn[0]; size--;
+      if (size > 0) {
+        const lc = hc[size], ln = hn[size]; let i = 0;
+        for (;;) { let l = 2 * i + 1; if (l >= size) break; if (l + 1 < size && hc[l + 1] < hc[l]) l++; if (hc[l] >= lc) break; hc[i] = hc[l]; hn[i] = hn[l]; i = l; }
+        hc[i] = lc; hn[i] = ln;
+      }
+      popC = c; return n;
+    };
+    gridQuery(A.nodeGrid, ax - ra, ay - ra, ax + ra, ay + ra, i => { const d = offOf(i, ax, ay); if (d <= ra && K * d < dist[i]) { dist[i] = K * d; from[i] = i; push(dist[i], i); } });
+    const goal = new Map();
+    gridQuery(A.nodeGrid, bx - rb, by - rb, bx + rb, by + rb, i => { const d = offOf(i, bx, by); if (d <= rb) goal.set(i, K * d); });
+    let best = Infinity, bestN = -1;
+    while (size) {
+      const u = pop(), d = popC;
+      if (d > dist[u]) continue;
+      if (d >= best) break;
+      if (goal.has(u) && from[u] !== u) { const t = d + goal.get(u); if (t < best) { best = t; bestN = u; } }
+      for (let q = G.off[u]; q < G.off[u + 1]; q++) {
+        const v = G.adjN[q], nd = d + G.len[G.adjE[q]];
+        if (nd < dist[v]) { dist[v] = nd; from[v] = from[u]; push(nd, v); }
+      }
+    }
+    if (bestN < 0 || from[bestN] === bestN) return plain;
+    const a = from[bestN];
+    return { a, b: bestN, offA: offOf(a, ax, ay), offB: offOf(bestN, bx, by) };
+  }
+
   function routeCoords(A, r) { return r.nodes.map(n => [A.G.X[n], A.G.Y[n]]); }
 
   // 경로 선에서 R m 안 나무
@@ -464,28 +512,33 @@
 
   // 모드별 그림자 계산을 준비(캐시)
   const SUMMER = { y: 2026, m: 7, d: 20 }, WINTER = { y: 2027, m: 1, d: 15 };
-  function summerShade(A, hour) {
-    const key = 'shade' + hour;
+  // 날짜(date: {y, m, d}, 없으면 대표일)와 시각별로 캐시한다
+  const dkey = (D) => D.y + '-' + D.m + '-' + D.d;
+  function shadeKey(hour, date) { return 'shade' + dkey(date || SUMMER) + '@' + hour; }
+  function winterKey(date) { return 'winter' + dkey(date || WINTER); }
+  function summerShade(A, hour, date) {
+    const D = date || SUMMER, key = shadeKey(hour, D);
     if (A.cache[key]) return A.cache[key];
     const h = Math.floor(hour), mi = Math.round((hour - h) * 60);
     const [lat, lon] = A.toLL(0, 0);
-    const sun = sunPos(kst(SUMMER.y, SUMMER.m, SUMMER.d, h, mi), lat, lon);
+    const sun = sunPos(kst(D.y, D.m, D.d, h, mi), lat, lon);
     const R = shadowRaster(A, sun, {});
     const res = { sun, shade: edgeShade(A, R) };
     return (A.cache[key] = res);
   }
-  function winterSun(A) {
-    if (A.cache.winter) return A.cache.winter;
+  function winterSun(A, date) {
+    const D = date || WINTER, key = winterKey(D);
+    if (A.cache[key]) return A.cache[key];
     const [lat, lon] = A.toLL(0, 0);
     const S = samples(A), sunCnt = new Uint8Array(S.PX.length);
     // 시각마다 격자 하나를 다시 써서 메모리를 아낀다(결과는 8장을 한꺼번에 만든 것과 같다)
     let buf = null;
     for (let h = 9; h <= 16; h++) {
-      const R = shadowRaster(A, sunPos(kst(WINTER.y, WINTER.m, WINTER.d, h, 0), lat, lon), { evergreenOnly: true }, buf);
+      const R = shadowRaster(A, sunPos(kst(D.y, D.m, D.d, h, 0), lat, lon), { evergreenOnly: true }, buf);
       buf = R.night ? buf : R.data;
       for (let i = 0; i < S.PX.length; i++) if (rasterAt(R, S.PX[i], S.PY[i]) !== 1) sunCnt[i]++;
     }
-    return (A.cache.winter = edgeSun(A, sunCnt));
+    return (A.cache[key] = edgeSun(A, sunCnt));
   }
 
   function metricOf(A, mode, r, ctx) {
@@ -519,13 +572,41 @@
     return sa > sb + 1e-9 || (Math.abs(sa - sb) <= 1e-9 && a.len < b.len - 1e-9);
   }
 
+  // 걷기 옵션 가중치: 계단 ×40(사실상 피함, 다른 길이 없을 때만 씀), 큰길(간선도로) ×1.6, 왕복 4차로 이상 길 ×1.3
+  function walkWeights(A, opts) {
+    if (!opts.noSteps && !opts.quiet) return null;
+    const G = A.G, W = new Float64Array(G.E);
+    for (let e = 0; e < G.E; e++) {
+      let w = 1;
+      const t = G.et[e];
+      if (opts.noSteps && t === 's') w *= 40;
+      if (opts.quiet) { if (t === 'M') w *= 1.6; else if (t === 'm' && G.eh[e] >= 6) w *= 1.3; }
+      W[e] = w;
+    }
+    return W;
+  }
+  // 경로의 계단 구간 수와 큰길 옆 거리
+  function routeStats(A, r) {
+    const G = A.G; let steps = 0, stepLen = 0, big = 0, prevStep = false;
+    for (const e of r.edges) {
+      const t = G.et[e];
+      if (t === 's') { if (!prevStep) steps++; stepLen += G.len[e]; prevStep = true; } else prevStep = false;
+      if (t === 'M' || (t === 'm' && G.eh[e] >= 6)) big += G.len[e];
+    }
+    return { steps, stepLen, big };
+  }
+
   function plan(A, src, dst, mode, opts) {
     opts = opts || {};
     const M = MODES[mode], G = A.G;
     const ctx = {};
-    if (M.kind === 'shade') ctx.shade = summerShade(A, opts.hour == null ? 18.5 : opts.hour).shade;
-    if (M.kind === 'sun') Object.assign(ctx, winterSun(A));
-    const base = dijkstra(A, src, dst, G.len);
+    if (M.kind === 'shade') { const ss = summerShade(A, opts.hour == null ? 18.5 : opts.hour, opts.date); ctx.shade = ss.shade; ctx.sun = ss.sun; }
+    if (M.kind === 'sun') Object.assign(ctx, winterSun(A, opts.date));
+    // 걷기 옵션(계단 피하기·큰길 피하기)은 모든 비용에 곱하는 가중치로 넣는다. 최단 경로도 같은 가중치로 찾는다.
+    const Wt = walkWeights(A, opts);
+    let baseCost = G.len;
+    if (Wt) { baseCost = new Float64Array(G.E); for (let e = 0; e < G.E; e++) baseCost[e] = G.len[e] * Wt[e]; }
+    const base = dijkstra(A, src, dst, baseCost);
     if (!base) return null;
     base.m = metricOf(A, mode, base, ctx);
     const cost = new Float64Array(G.E), seen = new Map([[base.key, base]]);
@@ -542,7 +623,8 @@
       for (const w of SWEEP) runs.push(e => G.len[e] * (1 + w * (ctx.ice[e] + 0.3 * (1 - ctx.sunH[e] / 8))));
     }
     for (const f of runs) {
-      for (let e = 0; e < G.E; e++) cost[e] = f(e);
+      if (Wt) for (let e = 0; e < G.E; e++) cost[e] = f(e) * Wt[e];
+      else for (let e = 0; e < G.E; e++) cost[e] = f(e);
       const r = dijkstra(A, src, dst, cost);
       if (!r || seen.has(r.key)) continue;
       r.m = metricOf(A, mode, r, ctx);
@@ -572,5 +654,5 @@
     return { worth: false };
   }
 
-  return { F, FOLIAGE, MODES, score, speciesFlags, crownOf, decodeArea, makeBlds, nearestNode, dijkstra, routeCoords, treesNear, viaNames, sunPos, kst, shadowPolys, plan, summerShade, winterSun, edgeCount, SUMMER, WINTER };
+  return { shadeKey, winterKey, walkWeights, routeStats, F, FOLIAGE, MODES, score, speciesFlags, crownOf, decodeArea, makeBlds, nearestNode, snapEnds, dijkstra, routeCoords, treesNear, viaNames, sunPos, kst, shadowPolys, plan, summerShade, winterSun, edgeCount, SUMMER, WINTER };
 });

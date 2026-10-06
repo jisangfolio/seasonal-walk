@@ -18,18 +18,11 @@
   // 지역 좌표 → 화면 좌표(둘 다 위도·경도에 선형이라 정확하다)
   const affine = (A) => ({ a: D.kx / A.kx, d: D.ky / A.ky, e: (A.lon0 - D.lon0) * D.kx, f: (A.lat0 - D.lat0) * D.ky });
 
-  // ---------------------------------------------------------------- 미리 받아 둔 지역과 예시
-  const PRESETS = {
-    jongno: { label: '종로·광화문', file: 'data/jongno.js', lat0: 37.57215, lon0: 126.983, box: [-928, -816, 928, 816] },
-    yeouido: { label: '여의도', file: 'data/yeouido.js', lat0: 37.5255, lon0: 126.928, box: [-1459, -999, 1459, 999] }
-  };
-  for (const p of Object.values(PRESETS)) { const k = O.kOf(p.lat0); p.kx = k.kx; p.ky = k.ky; }
-  const fromPreset = (id, x, y) => { const p = PRESETS[id]; return { lat: p.lat0 + y / p.ky, lon: p.lon0 + x / p.kx }; };
-  const station = (nm) => { const s = SEOUL.stations.find(q => q[0] === nm); return s ? { lat: s[1], lon: s[2] } : null; };
+  // ---------------------------------------------------------------- 예시
   const EXAMPLES = [
-    { label: '종각역 → 미국대사관', a: Object.assign(fromPreset('jongno', 16, -219), { name: '종각역' }), b: Object.assign(fromPreset('jongno', -455, 116), { name: '미국대사관' }) },
-    { label: '여의도 윤중로 벚꽃', mode: 'spring-cherry', a: Object.assign(fromPreset('yeouido', -327, -425), { name: '여의도역' }), b: Object.assign(fromPreset('yeouido', -887, 279), { name: '국회의사당역' }) },
-    { label: '강남역 → 역삼역', a: Object.assign(station('강남역') || { lat: 37.4979, lon: 127.0276 }, { name: '강남역' }), b: Object.assign(station('역삼역') || { lat: 37.5007, lon: 127.0365 }, { name: '역삼역' }) }
+    { label: '종각역 → 미국대사관', a: { lat: 37.570177, lon: 126.983181, name: '종각역' }, b: { lat: 37.573195, lon: 126.977849, name: '미국대사관' } },
+    { label: '여의도 윤중로 벚꽃', mode: 'spring-cherry', a: { lat: 37.521671, lon: 126.924301, name: '여의도역' }, b: { lat: 37.528014, lon: 126.917966, name: '국회의사당역' } },
+    { label: '강남역 → 역삼역', a: { lat: 37.497206, lon: 127.027912, name: '강남역' }, b: { lat: 37.500822, lon: 127.03696, name: '역삼역' } }
   ];
 
   const SEASONS = {
@@ -42,13 +35,22 @@
     'spring-cherry': { chip: '벚꽃', note: '2026년 서울 벚꽃은 3월 29일에 피었어요(평년 4월 8일). 여의도 윤중로도 같은 날 피었어요. 피고 1~2주 사이가 절정이에요.' },
     'spring-ipap': { chip: '이팝꽃', note: '이팝나무는 보통 5월 초·중순에 흰 꽃이 펴요.' },
     'spring-all': { chip: '봄꽃 전체', note: '산수유·매화(3월) → 벚꽃·목련·살구(4월) → 이팝·때죽·칠엽수(5월) 순서로 펴요.' },
-    'summer-shade': { chip: '그늘길', note: '2026년 7월 20일 해 위치로 건물과 가로수 그림자를 계산해요. 차도는 그늘진 쪽 보도를 걷는다고 봐요.' },
+    'summer-shade': { chip: '그늘길', note: '고른 날짜의 해 위치로 건물(실제 높이)과 가로수 그림자를 계산해요. 차도는 그늘진 쪽 보도를 걷는다고 봐요.' },
     'autumn-foliage': { chip: '단풍길', note: '서울 도심 가로수 단풍은 보통 10월 말~11월 중순이에요. 은행 암나무 옆은 피해서 골라요.' },
     'autumn-ginkgo': { chip: '은행 냄새 피하기', note: '은행 열매는 보통 9월 말~11월에 떨어져요. 가로수 데이터에 암나무 표시가 있는 곳에서만 쓸 수 있어요(자치구마다 달라요).' },
-    'winter-sun': { chip: '볕길', note: '2027년 1월 15일 9~16시 그림자로 하루 볕 드는 시간을 계산해요. 하루 2시간도 해가 안 드는 곳을 응달(빙판 주의)로 봐요.' }
+    'winter-sun': { chip: '볕길', note: '고른 날짜의 9~16시 그림자로 하루 볕 드는 시간을 계산해요. 하루 2시간도 해가 안 드는 곳을 응달(빙판 주의)로 봐요.' }
   };
+  // 철 달력: [시작, 한창 시작, 한창 끝, 끝] (월, 일). 지금이 언제쯤인지 알려 주는 데 쓴다.
+  const SEASON_CAL = {
+    'spring-cherry': { range: [[3, 29], [4, 3], [4, 9], [4, 16]], what: '벚꽃', topic: '벚꽃은', subj: '벚꽃이', src: '2026년 서울 개화 3월 29일(기상청)' },
+    'spring-ipap': { range: [[4, 28], [5, 3], [5, 15], [5, 25]], what: '이팝꽃', topic: '이팝꽃은', subj: '이팝꽃이', src: '보통 5월 초·중순' },
+    'spring-all': { range: [[3, 15], [3, 29], [5, 10], [5, 25]], what: '봄꽃', topic: '봄꽃은', subj: '봄꽃이', src: '산수유 3월 중순 ~ 이팝 5월' },
+    'autumn-foliage': { range: [[10, 20], [10, 31], [11, 12], [11, 22]], what: '단풍', topic: '단풍은', subj: '단풍이', src: '웨더아이 2026 예보: 중부 지방 절정 10월 31일~11월 5일' },
+    'autumn-ginkgo': { range: [[9, 25], [10, 10], [11, 10], [11, 25]], what: '은행 열매', topic: '은행 열매는', subj: '은행 열매가', peak: '지금이 은행 열매가 많이 떨어질 때예요.', src: '보통 9월 말~11월' }
+  };
+  const SUMMER_TODAY = [4, 10], WINTER_TODAY = [11, 3];   // '오늘' 날짜로 계산할 수 있는 달(그늘길: 잎이 있는 때, 볕길: 잎이 진 때)
 
-  const S = { A: null, B: null, mode: null, hour: 18.5, winterHour: 12, cap: {}, armed: 'B', res: null, busy: false };
+  const S = { A: null, B: null, mode: null, hour: 18.5, winterHour: 12, cap: {}, armed: 'B', res: null, busy: false, sumDay: null, winDay: null, opt: { noSteps: false, quiet: false }, wx: null, modeTouched: false };
   let cur = null;           // 지금 경로를 계산한 지역
   const areas = [];         // 받아 둔 지역(최근 것이 앞)
   let osmSeq = 0;
@@ -63,6 +65,31 @@
   }
   const seasonOfMode = (mode) => E.MODES[mode].season;
   const needsBld = (mode) => mode === 'summer-shade' || mode === 'winter-sun';
+  // 오늘(한국 시각) 날짜
+  function todayKST() { const t = new Date(Date.now() + 9 * 3600e3); return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() }; }
+  const todayDate = () => { const t = todayKST(); return new Date(t.y, t.m - 1, t.d); };
+  const inMonths = (m, r) => r[0] <= r[1] ? (m >= r[0] && m <= r[1]) : (m >= r[0] || m <= r[1]);
+  const canToday = (mode) => inMonths(todayKST().m, mode === 'summer-shade' ? SUMMER_TODAY : WINTER_TODAY);
+  // 그늘·볕 계산에 쓸 날짜: '오늘'을 골랐고 그 철이면 오늘, 아니면 대표일(7월 20일·1월 15일)
+  function modeDate(mode) {
+    if (mode === 'summer-shade') return S.sumDay === 'today' && canToday(mode) ? todayKST() : E.SUMMER;
+    if (mode === 'winter-sun') return S.winDay === 'today' && canToday(mode) ? todayKST() : E.WINTER;
+    return null;
+  }
+  const fmtDate = (D) => D.m + '월 ' + D.d + '일';
+  // 철 달력으로 본 지금 상태
+  function seasonStatus(mode) {
+    const cal = SEASON_CAL[mode]; if (!cal) return '';
+    const t = todayKST(), v = t.m * 100 + t.d, r = cal.range.map(x => x[0] * 100 + x[1]);
+    const md = (x) => x[0] + '월 ' + x[1] + '일';
+    let st;
+    if (v < r[0]) st = '아직 일러요. ' + cal.topic + ' ' + md(cal.range[0]) + '쯤부터예요.';
+    else if (v < r[1]) st = cal.subj + ' 막 시작됐어요. 한창은 ' + md(cal.range[1]) + '쯤부터예요.';
+    else if (v <= r[2]) st = cal.peak || '지금이 ' + cal.what + ' 한창일 때예요.';
+    else if (v <= r[3]) st = cal.what + ' 끝물이에요.';
+    else st = '올해 ' + cal.what + ' 철은 지났어요. 나무 위치로 길은 그대로 찾아 드려요.';
+    return st + ' (' + cal.src + ')';
+  }
   const inSeoul = (p) => O.inPoly(p.lat, p.lon, SEOUL.boundary);
 
   // ---------------------------------------------------------------- 파일 읽기
@@ -77,12 +104,14 @@
     scripts.set(src, pr);
     return pr;
   }
-  async function gunzipB64(b64) {
-    const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    if (!('DecompressionStream' in window)) throw new Error('이 브라우저는 압축 해제를 지원하지 않아요. 최신 브라우저로 열어 주세요.');
-    const ds = new DecompressionStream('gzip');
-    return await new Response(new Blob([bin]).stream().pipeThrough(ds)).text();
-  }
+  // 미리 만든 격자 파일: ways(길), blds(건물), trees(가로수)
+  const CELL_VAR = { ways: 'SW_WAYS', blds: 'SW_BLDS', trees: 'SW_TREES' };
+  const CELL_LIST = { ways: SEOUL.ways || [], blds: SEOUL.blds || [], trees: SEOUL.cells };
+  const cellKeysFor = (kind, bb) => O.cellKeys(SEOUL.grid, bb).filter(k => CELL_LIST[kind].includes(k));
+  const cellObj = (kind, k) => window[CELL_VAR[kind]] && window[CELL_VAR[kind]][k];
+  // 서버가 잠깐 오류를 내는 일이 있어(GitHub Pages 503 등) 한 번 더 읽어 본다
+  const retryOnce = (src) => loadScript(src).catch(() => new Promise(r => setTimeout(r, 700)).then(() => loadScript(src + '?r=' + Date.now())));
+  function loadCells(kind, keys) { return Promise.all(keys.map(k => cellObj(kind, k) ? null : retryOnce('data/' + kind + '/' + k + '.js'))); }
 
   // ---------------------------------------------------------------- 색
   let C = {}, DARK = false;
@@ -107,7 +136,8 @@
 
   // ---------------------------------------------------------------- 지역 그리기용 경로(타일이 안 될 때)
   function ccw(p) { let s = 0; for (let i = 0; i < p.length; i++) { const a = p[i], b = p[(i + 1) % p.length]; s += a[0] * b[1] - b[0] * a[1]; } return s >= 0 ? p : p.slice().reverse(); }
-  function addPoly(path, pts) { const p = ccw(pts); path.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) path.lineTo(p[i][0], p[i][1]); path.closePath(); }
+  // closePath()는 Chrome에서 경로가 길수록 느려져(다각형 수만큼 제곱으로) 첫 점으로 되돌아가는 선으로 닫는다
+  function addPoly(path, pts) { const p = ccw(pts); path.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) path.lineTo(p[i][0], p[i][1]); path.lineTo(p[0][0], p[0][1]); }
   function areaPaths(A) {
     if (A.P) return A.P;
     const P = { park: new Path2D(), water: new Path2D(), blds: new Path2D(), road: {} };
@@ -162,7 +192,7 @@
     if (c) return c;
     c = { state: 'loading' };
     cells.set(key, c);
-    loadScript('data/trees/' + key + '.js').then(() => {
+    retryOnce('data/trees/' + key + '.js').then(() => {
       const raw = window.SW_TREES && window.SW_TREES[key];
       if (!raw) throw new Error('no data');
       Object.assign(c, prepCell(raw), { state: 'ok', raw });
@@ -194,7 +224,6 @@
     }
     return (b.paths[mode] = { faint, groups: paths, colors: groups.map(g => g[0]) });
   }
-  function ensureCells(keys) { return Promise.all(keys.filter(k => SEOUL.cells.includes(k)).map(k => { const c = cellData(k); return c.state === 'ok' ? null : loadScript('data/trees/' + k + '.js'); })); }
 
   // ---------------------------------------------------------------- 캔버스와 보기
   const cv = $('map'), ctx = cv.getContext('2d');
@@ -624,48 +653,108 @@
     const x = EXAMPLES[i];
     S.A = { lat: x.a.lat, lon: x.a.lon, name: x.a.name }; S.B = { lat: x.b.lat, lon: x.b.lon, name: x.b.name };
     $('q-A').value = x.a.name; $('q-B').value = x.b.name;
-    if (x.mode && x.mode !== S.mode) { S.mode = x.mode; S.sel = null; renderSeasonTabs(); }
+    if (x.mode && x.mode !== S.mode) { S.mode = x.mode; S.sel = null; S.modeTouched = true; renderSeasonTabs(); updateShadowLayer(); }
     S.res = null; routeDraw = null; arm('B'); home(); schedule(0);
   }
 
   // ---------------------------------------------------------------- 모드
+  // ---------------------------------------------------------------- 오늘 날씨(Open-Meteo, 키 없이 쓰는 공개 예보)
+  const WX_TEXT = (c) => c === 0 ? '맑음' : c <= 2 ? '구름 조금' : c === 3 ? '흐림' : c <= 48 ? '안개' : c <= 57 ? '이슬비' : c <= 67 ? '비' : c <= 77 ? '눈' : c <= 82 ? '소나기' : c <= 86 ? '눈보라' : '뇌우';
+  async function loadWeather() {
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.978&current=temperature_2m,apparent_temperature,weather_code&daily=temperature_2m_max,temperature_2m_min,snowfall_sum,precipitation_sum&past_days=2&forecast_days=1&timezone=Asia%2FSeoul';
+    const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 6000);
+    try {
+      const r = await fetch(url, { signal: ctl.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json(), d = j.daily, i = d.time.length - 1;
+      return { temp: j.current.temperature_2m, feel: j.current.apparent_temperature, code: j.current.weather_code, tmax: d.temperature_2m_max[i], tmin: d.temperature_2m_min[i],
+        snow3: d.snowfall_sum.reduce((a, b) => a + (b || 0), 0), rainToday: d.precipitation_sum[i] || 0 };
+    } catch (e) { return null; } finally { clearTimeout(tm); }
+  }
+  // 날씨로 고른 모드와 그 이유(없으면 날짜 기준)
+  function suggestMode(wx) {
+    const t = todayKST(), base = defaultMode(todayDate());
+    if (!wx) return { mode: base, why: 'date' };
+    if (wx.snow3 >= 0.5) return { mode: 'winter-sun', why: 'snow' };
+    if (wx.tmin <= -3 && inMonths(t.m, [11, 3])) return { mode: 'winter-sun', why: 'cold' };
+    if (wx.tmax >= 28 || wx.feel >= 29) return { mode: 'summer-shade', why: 'hot' };
+    return { mode: base, why: 'date' };
+  }
+  function renderTodayNote() {
+    const t = todayKST(), wx = S.wx, sg = S.suggest;
+    const w = wx ? '지금 서울 ' + Math.round(wx.temp) + '°C · ' + WX_TEXT(wx.code) + ' (최고 ' + Math.round(wx.tmax) + '° / 최저 ' + Math.round(wx.tmin) + '°). ' : '';
+    let why = '';
+    if (sg && sg.mode === S.mode && !S.modeTouched) {
+      why = sg.why === 'hot' ? '더운 날이라 그늘길로 골라 뒀어요.' : sg.why === 'snow' ? '최근 눈이 와서(' + wx.snow3.toFixed(1) + 'cm) 볕길로 골라 뒀어요. 응달은 빙판 주의.' : sg.why === 'cold' ? '영하로 추운 날이라 볕길로 골라 뒀어요.' : '오늘(' + fmtDate(t) + ')에 맞춰 ' + SEASONS[seasonOfMode(S.mode)].label + ' 모드로 골라 뒀어요.';
+    }
+    $('today-note').textContent = (w + why).trim();
+  }
+
   function renderSeasonTabs() {
     const season = seasonOfMode(S.mode);
     $('seasons').innerHTML = Object.entries(SEASONS).map(([k, v]) => '<button type="button" role="tab" data-season="' + k + '" aria-selected="' + (k === season) + '" class="season s-' + k + '">' + v.label + '</button>').join('');
     const modes = SEASONS[season].modes;
     $('submodes').innerHTML = modes.length > 1 ? modes.map(m => '<button type="button" class="chip" data-mode="' + m + '" aria-pressed="' + (m === S.mode) + '">' + MODE_UI[m].chip + '</button>').join('') : '';
     $('season-note').textContent = MODE_UI[S.mode].note;
-    const today = new Date();
-    $('today-note').textContent = S.mode === defaultMode(today) ? '오늘(' + (today.getMonth() + 1) + '월 ' + today.getDate() + '일)에 맞춰 ' + SEASONS[season].label + ' 모드로 골라 뒀어요.' : '';
+    $('season-status').textContent = seasonStatus(S.mode);
+    renderTodayNote();
     $('time-row').hidden = S.mode !== 'summer-shade';
     $('winter-row').hidden = S.mode !== 'winter-sun';
+    renderDayChips();
     const capPct = Math.round((S.cap[S.mode] != null ? S.cap[S.mode] : E.MODES[S.mode].cap) * 100);
     $('cap').value = capPct; $('cap-out').textContent = '+' + capPct + '%';
+    for (const b of $('opts').querySelectorAll('[data-opt]')) b.setAttribute('aria-pressed', String(!!S.opt[b.dataset.opt]));
     if (!needsBld(S.mode)) $('sun-info').textContent = '';
     renderLegend();
   }
+  // 그늘길·볕길 날짜 고르기: 오늘(그 철일 때만) / 대표일
+  function renderDayChips() {
+    const t = todayKST();
+    for (const [mode, id, key, rep, repLabel, why] of [['summer-shade', 'sum-day', 'sumDay', E.SUMMER, '한여름', '4~10월에만 오늘 날짜로 계산해요(잎이 있을 때)'], ['winter-sun', 'win-day', 'winDay', E.WINTER, '한겨울', '11~3월에만 오늘 날짜로 계산해요(잎이 졌을 때)']]) {
+      const ok = canToday(mode), on = S[key] === 'today' && ok;
+      $(id).innerHTML = '<button type="button" class="chip" data-day="today" aria-pressed="' + on + '"' + (ok ? '' : ' disabled title="' + why + '"') + '>오늘 ' + fmtDate(t) + '</button>' +
+        '<button type="button" class="chip" data-day="rep" aria-pressed="' + !on + '">' + repLabel + ' ' + fmtDate(rep) + '</button>' + (ok ? '' : '<span class="fine">' + why + '</span>');
+    }
+  }
+  for (const [id, key] of [['sum-day', 'sumDay'], ['win-day', 'winDay']]) $(id).addEventListener('click', (e) => {
+    const b = e.target.closest('[data-day]'); if (!b || b.disabled) return;
+    S[key] = b.dataset.day; renderDayChips(); updateShadowLayer(); schedule();
+  });
+  $('opts').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-opt]'); if (!b) return;
+    S.opt[b.dataset.opt] = !S.opt[b.dataset.opt]; b.setAttribute('aria-pressed', String(S.opt[b.dataset.opt])); schedule();
+  });
   $('seasons').addEventListener('click', (e) => { const b = e.target.closest('[data-season]'); if (!b) return; setMode(SEASONS[b.dataset.season].modes[0]); });
   $('submodes').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (!b) return; setMode(b.dataset.mode); });
-  function setMode(m) { S.mode = m; S.sel = null; renderSeasonTabs(); updateShadowLayer(); draw(); schedule(); }
+  function setMode(m) { S.mode = m; S.sel = null; S.modeTouched = true; renderSeasonTabs(); updateShadowLayer(); draw(); schedule(); }
   $('cap').addEventListener('input', (e) => { S.cap[S.mode] = +e.target.value / 100; $('cap-out').textContent = '+' + e.target.value + '%'; schedule(); });
   function fmtHour(h) { const hh = Math.floor(h), mm = Math.round((h - hh) * 60); return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'); }
   $('hour').addEventListener('input', (e) => { S.hour = +e.target.value; $('hour-out').textContent = fmtHour(S.hour); syncTimeChips(); updateShadowLayer(); schedule(250); });
   $('time-chips').addEventListener('click', (e) => { const b = e.target.closest('[data-h]'); if (!b) return; S.hour = +b.dataset.h; $('hour').value = S.hour; $('hour-out').textContent = fmtHour(S.hour); syncTimeChips(); updateShadowLayer(); schedule(); });
+  // 지금 한국 시각을 30분 단위로(7:00~19:30 사이로 맞춤)
+  function setHourNow() {
+    const t = new Date(Date.now() + 9 * 3600e3), hh = t.getUTCHours() + t.getUTCMinutes() / 60;
+    S.hour = Math.min(19.5, Math.max(7, Math.round(hh * 2) / 2));
+    $('hour').value = S.hour; $('hour-out').textContent = fmtHour(S.hour); syncTimeChips();
+  }
   function syncTimeChips() { for (const b of $('time-chips').querySelectorAll('[data-h]')) b.setAttribute('aria-pressed', String(+b.dataset.h === S.hour)); }
   $('whour').addEventListener('input', (e) => { S.winterHour = +e.target.value; $('whour-out').textContent = fmtHour(S.winterHour); updateShadowLayer(); });
 
+  function shadowSun() {
+    const D = modeDate(S.mode), [lat, lon] = cur ? cur.toLL(0, 0) : [37.5665, 126.978];
+    if (S.mode === 'summer-shade') { const h = Math.floor(S.hour), mi = Math.round((S.hour - h) * 60); return E.sunPos(E.kst(D.y, D.m, D.d, h, mi), lat, lon); }
+    return E.sunPos(E.kst(D.y, D.m, D.d, S.winterHour, 0), lat, lon);
+  }
   function updateShadowLayer() {
     shadowPath = null; layerVer++;
     const A = cur;
-    if (!A || !needsBld(S.mode) || !A.hasBld) { draw(); return; }
-    const [lat, lon] = A.toLL(0, 0);
-    let sun, ever = false;
-    if (S.mode === 'summer-shade') { const h = Math.floor(S.hour), mi = Math.round((S.hour - h) * 60); sun = E.sunPos(E.kst(E.SUMMER.y, E.SUMMER.m, E.SUMMER.d, h, mi), lat, lon); }
-    else { sun = E.sunPos(E.kst(E.WINTER.y, E.WINTER.m, E.WINTER.d, S.winterHour, 0), lat, lon); ever = true; }
-    const sp = E.shadowPolys(A, sun, { evergreenOnly: ever });
+    if (!needsBld(S.mode)) { draw(); return; }
+    const sun = shadowSun(), D = modeDate(S.mode);
+    $('sun-info').textContent = fmtDate(D) + ' ' + fmtHour(S.mode === 'summer-shade' ? S.hour : S.winterHour) + ' · ' + (sun.alt > 0.5 ? '해 높이 ' + Math.round(sun.alt) + '° · 방위 ' + Math.round(sun.az) + '°' : '해가 진 시각이에요');
+    if (!A || !A.hasBld) { draw(); return; }
+    const sp = E.shadowPolys(A, sun, { evergreenOnly: S.mode === 'winter-sun' });
     if (sp.night) { shadowPath = new Path2D(); shadowPath.rect(-1e5, -1e5, 2e5, 2e5); }
     else { const p = new Path2D(); for (const poly of sp.polys) addPoly(p, poly); shadowPath = p; }
-    $('sun-info').textContent = '해 높이 ' + Math.round(sun.alt) + '° · 방위 ' + Math.round(sun.az) + '°';
     draw();
   }
   function renderLegend() {
@@ -674,65 +763,51 @@
     items.unshift('<span class="lg"><i class="ln" style="background:var(--short)"></i>최단</span><span class="lg"><i class="ln" style="background:var(--pick)"></i>' + E.MODES[S.mode].label + '</span>');
     if (needsBld(S.mode)) items.push('<span class="lg"><i class="sq"></i>그림자</span>');
     if (S.mode === 'winter-sun') items.push('<span class="lg"><i class="ln ice"></i>응달 구간</span>');
-    if (cur && cur.kind === 'osm') items.push('<span class="lg"><i class="ln cov"></i>길 정보를 받은 범위</span>');
+    if (cur) items.push('<span class="lg"><i class="ln cov"></i>계산 범위</span>');
     $('legend').innerHTML = items.join('');
   }
   const cssVar = (k) => '--' + k.replace(/^t([A-Z])/, (m, c) => 't-' + c.toLowerCase()).replace(/[A-Z]/g, c => '-' + c.toLowerCase());
 
-  // ---------------------------------------------------------------- 지역 고르기·받기
-  function presetCovers(id, a, b) {
-    const p = PRESETS[id], m = 120;
-    return [a, b].every(q => { const x = (q.lon - p.lon0) * p.kx, y = (q.lat - p.lat0) * p.ky; return x > p.box[0] + m && x < p.box[2] - m && y > p.box[1] + m && y < p.box[3] - m; });
-  }
-  // 이미 받은 범위가 이번 출발·도착에 필요한 띠를 덮으면 다시 쓴다
+  // ---------------------------------------------------------------- 지역 만들기
+  // 미리 만든 서울 격자 파일(길·건물·가로수)로 출발·도착 둘레를 바로 만든다.
+  // 격자 파일을 못 읽으면 예전처럼 OpenStreetMap(Overpass)에서 그때그때 받는다.
   function findArea(a, b) {
     const need = O.corridor(a, b, 0, true).ll;
-    for (const A of areas) {
-      if (A.kind === 'preset' ? presetCovers(A.presetId, a, b) : O.covers(A.cov, need)) return A;
-    }
+    for (const A of areas) if (O.covers(A.cov, need)) return A;
     return null;
-  }
-  async function loadPreset(id) {
-    const p = PRESETS[id];
-    window.SW_DATA = window.SW_DATA || {};
-    if (!window.SW_DATA[id]) await loadScript(p.file);
-    const raw = JSON.parse(await gunzipB64(window.SW_DATA[id]));
-    const A = E.decodeArea(raw);
-    A.kind = 'preset'; A.presetId = id; A.hasBld = true;
-    const c = [[p.box[0], p.box[1]], [p.box[2], p.box[1]], [p.box[2], p.box[3]], [p.box[0], p.box[3]]];
-    A.cov = c.map(([x, y]) => A.toLL(x, y));
-    areas.unshift(A);
-    return A;
   }
   let pending = null;
   function trimAreas() {
     let n = 0;
-    for (let i = 0; i < areas.length; i++) if (areas[i].kind === 'osm' && ++n > 3 && areas[i] !== cur) { areas.splice(i, 1); i--; }
+    for (let i = 0; i < areas.length; i++) if (++n > 4 && areas[i] !== cur) { areas.splice(i, 1); i--; }
   }
-  // 서버 진행 상황을 화면 문구로
-  const netHooks = (t0, d, signal) => ({
-    signal,
-    onWait: (w) => progress('OpenStreetMap 서버 차례를 기다리고 있어요(' + w + '초)', t0, d),
-    onRetry: (n, why) => progress(why === '응답이 늦음' ? '서버 응답이 늦어서 다른 서버에도 묻고 있어요' : '서버가 바빠서 다른 서버에 다시 묻고 있어요 (' + why + ')', t0, d)
-  });
-  async function loadOsm(a, b) {
+  const bldBox = (a, b) => O.bboxOf(O.corridor(a, b, 150).ll, 0);
+  async function loadArea(a, b) {
     const cor = O.corridor(a, b);
     if (pending && O.covers(pending.cov, O.corridor(a, b, 0, true).ll)) return pending.promise;
     if (pending) pending.ctl.abort();
-    const ctl = new AbortController();
-    const t0 = Date.now(), withBld = needsBld(S.mode);
+    const ctl = new AbortController(), t0 = Date.now(), withBld = needsBld(S.mode);
     const promise = (async () => {
-      progress(withBld ? 'OpenStreetMap에서 길과 건물 정보를 받고 있어요' : 'OpenStreetMap에서 길 정보를 받고 있어요', t0, cor.d);
-      const bb = O.bboxOf(cor.ll, 40), keys = O.cellKeys(SEOUL.grid, bb).filter(k => SEOUL.cells.includes(k));
-      const q = withBld ? O.qBoth(cor.ll, O.corridor(a, b, 120).ll) : O.qWays(cor.ll);
-      const [json] = await Promise.all([O.overpass(q, netHooks(t0, cor.d, ctl.signal)), ensureCells(keys)]);
-      const parts = withBld ? O.splitBoth(json) : { hw: json, bld: null };
-      progress('가로수를 길에 붙이고 있어요', t0, cor.d);
-      await nextFrame();
-      const trees = O.treesIn(keys.map(k => window.SW_TREES[k]), bb);
-      const A = O.buildArea(E, { id: 'osm' + (++osmSeq), name: '고른 범위', cor, hw: parts.hw, trees });
+      const bb = O.bboxOf(cor.ll, 40), bbB = bldBox(a, b);
+      const wk = cellKeysFor('ways', bb), tk = cellKeysFor('trees', bb), bk = withBld ? cellKeysFor('blds', bbB) : [];
+      let A = null;
+      if (wk.length) {
+        const slow = setTimeout(() => progress(withBld ? '길·건물 지도 파일을 여는 중이에요' : '길 지도 파일을 여는 중이에요', t0, cor.d, true), 400);
+        // 길·가로수 파일을 못 읽으면 OpenStreetMap에서 받는다. 건물 파일만 못 읽으면 길은 그대로 쓰고 건물은 나중에 다시 구한다(loadBuildings).
+        let got;
+        try { got = await Promise.allSettled([loadCells('ways', wk), loadCells('trees', tk), loadCells('blds', bk)]); } finally { clearTimeout(slow); }
+        if (ctl.signal.aborted) throw Object.assign(new Error('취소됐어요'), { name: 'AbortError' });
+        if (got[0].status === 'fulfilled' && got[1].status === 'fulfilled') {
+          A = O.assembleArea(E, {
+            id: 'a' + (++osmSeq), name: '고른 범위', cor, bb,
+            ways: wk.map(k => cellObj('ways', k)), trees: O.treesIn(tk.map(k => cellObj('trees', k)), bb),
+            blds: withBld && got[2].status === 'fulfilled' ? bk.map(k => cellObj('blds', k)) : null, bldBB: bbB
+          });
+          A.src = 'baked';
+        }
+      }
+      if (!A) A = await loadOsm(a, b, cor, ctl, t0, withBld);
       if (!A.G.E) throw Object.assign(new Error('이 범위에는 걸을 수 있는 길 정보가 없어요'), { name: 'EmptyArea' });
-      if (parts.bld) O.attachBuildings(E, A, parts.bld);
       A.ends = [{ lat: a.lat, lon: a.lon }, { lat: b.lat, lon: b.lon }];
       A.loadMs = Date.now() - t0;
       areas.unshift(A); trimAreas();
@@ -741,13 +816,42 @@
     pending = { cov: cor.ll, promise, ctl };
     try { return await promise; } finally { if (pending && pending.promise === promise) pending = null; }
   }
+  // 서버 진행 상황을 화면 문구로
+  const netHooks = (t0, d, signal) => ({
+    signal,
+    onWait: (w) => progress('OpenStreetMap 서버 차례를 기다리고 있어요(' + w + '초)', t0, d),
+    onRetry: (n, why) => progress(why === '응답이 늦음' ? '서버 응답이 늦어서 다른 서버에도 묻고 있어요' : '서버가 바빠서 다른 서버에 다시 묻고 있어요 (' + why + ')', t0, d)
+  });
+  // 예비: 격자 파일이 없는 곳은 Overpass에서 받는다
+  async function loadOsm(a, b, cor, ctl, t0, withBld) {
+    progress(withBld ? 'OpenStreetMap에서 길과 건물 정보를 받고 있어요' : 'OpenStreetMap에서 길 정보를 받고 있어요', t0, cor.d);
+    const bb = O.bboxOf(cor.ll, 40), tk = cellKeysFor('trees', bb);
+    const q = withBld ? O.qBoth(cor.ll, O.corridor(a, b, 120).ll) : O.qWays(cor.ll);
+    const [json] = await Promise.all([O.overpass(q, netHooks(t0, cor.d, ctl.signal)), loadCells('trees', tk)]);
+    const parts = withBld ? O.splitBoth(json) : { hw: json, bld: null };
+    progress('가로수를 길에 붙이고 있어요', t0, cor.d);
+    await nextFrame();
+    const trees = O.treesIn(tk.map(k => cellObj('trees', k)), bb);
+    const A = O.buildArea(E, { id: 'a' + (++osmSeq), name: '고른 범위', cor, hw: parts.hw, trees });
+    if (parts.bld) O.attachBuildings(E, A, parts.bld);
+    A.src = 'live';
+    return A;
+  }
   async function loadBuildings(A) {
     if (!A.bldPromise) {
-      const t0 = Date.now(), ll = O.corridor(A.ends[0], A.ends[1], 120).ll;
+      const t0 = Date.now();
       A.bldPromise = (async () => {
-        progress('그림자 계산에 쓸 건물 정보를 받고 있어요', t0);
-        const j = await O.overpass(O.qBlds(ll), netHooks(t0));
-        O.attachBuildings(E, A, j);
+        const bbB = bldBox(A.ends[0], A.ends[1]), bk = cellKeysFor('blds', bbB);
+        let done = false;
+        if (A.src === 'baked' && bk.length) {
+          progress('그림자 계산에 쓸 건물 파일을 여는 중이에요', t0, 0, true);
+          try { await loadCells('blds', bk); done = true; } catch (e) { /* 건물 파일을 못 읽으면 OpenStreetMap에서 받는다 */ }
+          if (done) O.attachBakedBuildings(E, A, bk.map(k => cellObj('blds', k)), bbB);
+        }
+        if (!done) {
+          progress('그림자 계산에 쓸 건물 정보를 받고 있어요', t0);
+          O.attachBuildings(E, A, await O.overpass(O.qBlds(O.corridor(A.ends[0], A.ends[1], 120).ll), netHooks(t0)));
+        }
         A.P = null;
       })();
       A.bldPromise.catch((e) => { A.bldPromise = null; e.what = '건물 정보'; });
@@ -761,13 +865,13 @@
   let timer = null, runId = 0, tick = null;
   function schedule(delay) { clearTimeout(timer); timer = setTimeout(run, delay == null ? 60 : delay); }
   function setBusy(on, text) { S.busy = on; $('busy').hidden = !on; if (text) $('busy-txt').textContent = text; }
-  function progress(text, t0, d) {
+  function progress(text, t0, d, local) {
     clearInterval(tick);
     const paint = () => {
       const sec = Math.round((Date.now() - t0) / 1000);
       setBusy(true, text + (sec >= 2 ? ' · ' + sec + '초' : ''));
       $('result').innerHTML = '<div class="loading"><span class="spin"></span><p>' + esc(text) + (sec >= 2 ? ' <span class="mono">' + sec + '초</span>' : '') + '</p></div>' +
-        '<p class="fine">처음 고른 범위는 공개 OpenStreetMap 서버에서 받아요. 보통 5~30초 걸리고, 받은 범위 안에서는 바로 계산해요.' + (d > 2200 ? ' 거리가 멀수록 오래 걸려요.' : '') + '</p>';
+        (local ? '' : '<p class="fine">이 범위는 미리 만든 지도 파일이 없어 공개 OpenStreetMap 서버에서 받아요. 보통 5~30초 걸려요.' + (d > 2200 ? ' 거리가 멀수록 오래 걸려요.' : '') + '</p>');
     };
     paint(); tick = setInterval(paint, 1000);
   }
@@ -782,15 +886,17 @@
   }
   function areaNote(A) {
     const t = A.trees.n.toLocaleString('ko-KR');
-    if (A.kind === 'preset') return '미리 받아 둔 ' + PRESETS[A.presetId].label + ' 데이터 · 가로수 ' + t + '그루';
     const day = A.osm ? A.osm.slice(0, 10).replace(/-/g, '.') : '';
-    return 'OpenStreetMap' + (day ? ' ' + day + ' 기준' : '') + ' 길 ' + A.wayCount.toLocaleString('ko-KR') + '개 · 가로수 ' + t + '그루' + (A.loadMs ? ' · 받는 데 ' + Math.max(1, Math.round(A.loadMs / 1000)) + '초' : '');
+    const bld = A.hasBld ? (A.bldSrc === 'baked' ? ' · 건물 ' + A.blds.length.toLocaleString('ko-KR') + '채(국토부 층수 ' + (SEOUL.bldsDate || '') + ')' : ' · 건물 ' + A.blds.length.toLocaleString('ko-KR') + '채(OpenStreetMap)') : '';
+    return (A.src === 'baked' ? '미리 만든 서울 지도(OpenStreetMap ' + day + ')' : 'OpenStreetMap' + (day ? ' ' + day + ' 기준' : '') + ' 실시간') + ' · 길 ' + A.wayCount.toLocaleString('ko-KR') + '개 · 가로수 ' + t + '그루' + bld;
   }
-  function snapTo(A, p) {
-    const [x, y] = A.toXY(p.lat, p.lon), n = E.nearestNode(A, x, y);
-    if (n < 0) return null;
-    const [lat, lon] = A.toLL(A.G.X[n], A.G.Y[n]);
-    return { n, lat, lon, off: Math.hypot(A.G.X[n] - x, A.G.Y[n] - y) };
+  // 출발·도착을 길에 붙인다(가장 가까운 지점이 크게 돌아가야 하는 길이면 둘레의 더 나은 지점으로)
+  function snapEnds(A, a, b) {
+    const [ax, ay] = A.toXY(a.lat, a.lon), [bx, by] = A.toXY(b.lat, b.lon);
+    const s = E.snapEnds(A, ax, ay, bx, by);
+    if (!s) return null;
+    const at = (n, off) => { const [lat, lon] = A.toLL(A.G.X[n], A.G.Y[n]); return { n, lat, lon, off }; };
+    return [at(s.a, s.offA), at(s.b, s.offB)];
   }
 
   async function run() {
@@ -802,33 +908,30 @@
     if (d > MAXD) return showMsg('두 곳이 직선으로 ' + (d / 1000).toFixed(1) + 'km 떨어져 있어요. 걷기 경로는 직선 ' + (MAXD / 1000) + 'km(걸어서 1시간 안팎) 안에서만 찾아요.', 'warn');
     let A;
     try {
-      A = findArea(S.A, S.B);
-      if (!A) {
-        const pid = Object.keys(PRESETS).find(k => presetCovers(k, S.A, S.B) && !areas.some(x => x.presetId === k));
-        if (pid) { progress('미리 받아 둔 ' + PRESETS[pid].label + ' 데이터를 여는 중이에요', Date.now()); A = await loadPreset(pid); }
-        else A = await loadOsm(S.A, S.B);
-      }
+      A = findArea(S.A, S.B) || await loadArea(S.A, S.B);
       if (id !== runId) return;
       if (needsBld(S.mode) && !A.hasBld) { await loadBuildings(A); if (id !== runId) return; }
     } catch (err) {
       if (id !== runId || err.name === 'AbortError') return;
       console.error(err);
       stopProgress(); routeDraw = null; S.res = null; draw();
-      const why = err.name === 'EmptyArea' ? esc(err.message) : (err.what || '길 정보') + '를 받지 못했어요' + (err.message ? ' (' + esc(err.message) + ')' : '') + '. 공개 서버가 바쁠 때가 있어요. 잠시 뒤 다시 해 보세요.';
+      const why = err.name === 'EmptyArea' ? esc(err.message) : (err.what || '길 정보') + '를 가져오지 못했어요' + (err.message ? ' (' + esc(err.message) + ')' : '') + '. 인터넷 연결을 확인하고 잠시 뒤 다시 해 보세요.';
       $('result').innerHTML = '<p class="err">' + why + '</p><p><button type="button" class="linkbtn" id="retry">다시 시도</button></p>';
       $('retry').addEventListener('click', () => schedule(0));
       return;
     }
     clearInterval(tick); tick = null;
     setCur(A);
-    const sa = snapTo(A, S.A), sb = snapTo(A, S.B);
-    if (!sa || !sb) return showMsg('가까운 곳에 걸을 수 있는 길이 없어요. 길 위나 길 가까이를 골라 주세요.', 'warn');
+    const ends = snapEnds(A, S.A, S.B);
+    if (!ends) return showMsg('가까운 곳에 걸을 수 있는 길이 없어요. 길 위나 길 가까이를 골라 주세요.', 'warn');
+    const [sa, sb] = ends;
     const moved = [];
     if (sa.off > 80) moved.push('출발지 ' + Math.round(sa.off) + 'm');
     if (sb.off > 80) moved.push('도착지 ' + Math.round(sb.off) + 'm');
     S.A = Object.assign({}, S.A, { lat: sa.lat, lon: sa.lon }); S.B = Object.assign({}, S.B, { lat: sb.lat, lon: sb.lon });
     if (!shadowPath && needsBld(S.mode)) updateShadowLayer();
-    const needShade = (S.mode === 'summer-shade' && !A.cache['shade' + S.hour]) || (S.mode === 'winter-sun' && !A.cache.winter);
+    const date = modeDate(S.mode);
+    const needShade = (S.mode === 'summer-shade' && !A.cache[E.shadeKey(S.hour, date)]) || (S.mode === 'winter-sun' && !A.cache[E.winterKey(date)]);
     setBusy(needShade, S.mode === 'winter-sun' ? '9~16시 그림자로 하루 볕을 계산하고 있어요' : '그림자를 계산하고 있어요');
     if (needShade) $('result').innerHTML = '<div class="loading"><span class="spin"></span><p>' + esc($('busy-txt').textContent) + '</p></div>';
     await nextFrame();
@@ -836,10 +939,10 @@
     try {
       const t0 = performance.now();
       const capv = S.cap[S.mode] != null ? S.cap[S.mode] : E.MODES[S.mode].cap;
-      const res = E.plan(A, sa.n, sb.n, S.mode, { hour: S.hour, cap: capv });
+      const res = E.plan(A, sa.n, sb.n, S.mode, { hour: S.hour, cap: capv, date, noSteps: S.opt.noSteps, quiet: S.opt.quiet });
       setBusy(false);
       if (!res) return showMsg('두 곳을 잇는 걸을 수 있는 길을 못 찾았어요. 강이나 큰길 건너편이면 조금 옮겨 보세요.', 'warn');
-      res.ms = performance.now() - t0; res.area = A; res.moved = moved;
+      res.ms = performance.now() - t0; res.area = A; res.moved = moved; res.date = date; res.opt = Object.assign({}, S.opt); res.hour = S.hour;
       S.res = res; S.sel = null;
       renderResult(res);
       writeHash();
@@ -863,7 +966,7 @@
     const M = E.MODES[mode];
     if (M.kind === 'trees') return '15m 안 ' + M.what;
     if (M.kind === 'avoid') return '15m 안 은행 암나무';
-    if (M.kind === 'shade') return '그늘진 비율(' + fmtHour(S.hour) + ')';
+    if (M.kind === 'shade') return '그늘진 비율(' + fmtHour(S.res ? S.res.hour : S.hour) + ')';
     return '응달 비율(하루 볕 2시간 미만)';
   }
   function speciesBreak(A, r, max) {
@@ -885,9 +988,18 @@
       sub = (roads ? '<p class="sub">' + M.what + ': ' + roads + '</p>' : '') + '<p class="sub">15m 안 많은 나무: ' + (speciesBreak(A, r, 3) || '없음') + '</p>';
       if (M.avoid) sub += '<p class="sub">은행 암나무 ' + (r.m.bad || 0) + '그루</p>';
     } else if (M.kind === 'sun') sub = '<p class="sub">하루 평균 볕 ' + r.m.sunH.toFixed(1) + '시간 (9~16시 기준)</p>';
-    else if (M.kind === 'shade') sub = '<p class="sub">' + fmtHour(S.hour) + ' 기준, 그늘진 쪽 보도로 걸을 때</p>';
+    else if (M.kind === 'shade') sub = '<p class="sub">' + fmtDate(res.date || E.SUMMER) + ' ' + fmtHour(res.hour) + ' 기준, 그늘진 쪽 보도로 걸을 때</p>';
+    if (M.kind === 'sun') sub = sub.replace('(9~16시 기준)', '(' + fmtDate(res.date || E.WINTER) + ' 9~16시 기준)');
+    const opt = res.opt || {};
+    if (opt.noSteps || opt.quiet) {
+      const st = E.routeStats(A, r), bits = [];
+      if (opt.noSteps) bits.push(st.steps ? '계단 ' + st.steps + '곳(피할 길이 없어요)' : '계단 없음');
+      if (opt.quiet) bits.push('큰길 옆 ' + fmtM(st.big));
+      sub += '<p class="sub">' + bits.join(' · ') + '</p>';
+    }
+    const baseName = '최단 경로' + (opt.noSteps && opt.quiet ? '(계단·큰길 피함)' : opt.noSteps ? '(계단 피함)' : opt.quiet ? '(큰길 피함)' : '');
     return '<div class="card ' + (isPick ? 'pick' : 'short') + '">' +
-      '<h3><i class="ln" style="background:var(' + (isPick ? '--pick' : '--short') + ')"></i>' + (isPick ? (res.manual ? '고른 경로' : M.label) : '최단 경로') + '</h3>' +
+      '<h3><i class="ln" style="background:var(' + (isPick ? '--pick' : '--short') + ')"></i>' + (isPick ? (res.manual ? '고른 경로' : M.label) : baseName) + '</h3>' +
       (via.length ? '<p class="via">' + via.map(esc).join(' → ') + '</p>' : '') +
       '<div class="nums"><span class="num">' + fmtM(r.len).replace('m', '<small>m</small>') + '</span><span class="num">' + mins(r.len) + '<small>분</small></span>' + (isPick && delta > 0.5 ? '<span class="delta">+' + Math.round(delta) + 'm · ' + (Math.round(delta / WALK) ? '+' + Math.round(delta / WALK) + '분' : '1분 안') + '</span>' : '') + '</div>' +
       '<div class="metric"><span class="mlabel">' + metricLabel(mode) + '</span><span class="mval">' + metricText(mode, r.m, true) + '</span></div>' + sub + '</div>';
@@ -895,6 +1007,7 @@
   function headline(res) {
     const A = res.area, M = E.MODES[res.mode], b = res.base, p = res.sel || res.pick;
     const d = Math.round(p.len - b.len), dm = Math.round(d / WALK);
+    if (M.kind === 'shade' && res.ctx && res.ctx.sun && res.ctx.sun.alt <= 0.5) return '<p class="verdict warn">' + fmtDate(res.date || E.SUMMER) + ' ' + fmtHour(res.hour) + '에는 해가 져 있어서 그늘을 따질 필요가 없어요. 시각을 앞당겨 보세요.</p>';
     if (M.kind === 'avoid' && b.m.v === 0 && !A.trees.flags.some(f => f & E.F.FEMALE)) return '<p class="verdict warn">이 범위의 가로수 데이터에는 은행 암나무 표시가 없어요(자치구마다 표시 방식이 달라요). 은행나무 전체를 보려면 단풍길을 써 보세요.</p>';
     if (p === b) {
       if (M.kind === 'trees' && b.m.v >= 10) return '<p class="verdict">최단 경로가 곧 ' + M.label + '이에요. 그대로 걸어도 ' + M.what + ' ' + b.m.v + '그루를 지나요.</p>';
@@ -931,7 +1044,7 @@
     if (!res) { box.innerHTML = '<p class="empty">출발지와 도착지를 검색하거나 지도를 눌러 정하세요.</p>'; routeDraw = null; draw(); return; }
     const A = res.area, p = res.sel || res.pick;
     box.innerHTML = headline(res) + '<div class="cards">' + card(A, res.base, 'base', res) + (p !== res.base ? card(A, p, 'pick', Object.assign({}, res, { manual: !!res.sel })) : '') + '</div>' + chart(res) +
-      '<p class="fine">계산 ' + Math.round(res.ms) + 'ms · 출발·도착은 가장 가까운 보행로 지점에 맞췄어요' + (res.moved.length ? '(' + res.moved.join(', ') + ' 옮김)' : '') + '.' + (EMBED ? '' : ' <button type="button" class="linkbtn" id="copy-link">이 경로 링크 복사</button>') + '</p>';
+      '<p class="fine">계산 ' + Math.round(res.ms) + 'ms · 출발·도착은 가까운 보행로 지점에 맞췄어요' + (res.moved.length ? '(' + res.moved.join(', ') + ' 옮김)' : '') + '.' + (EMBED ? '' : ' <button type="button" class="linkbtn" id="copy-link">이 경로 링크 복사</button>') + '</p>';
     const cl = $('copy-link');
     if (cl) cl.addEventListener('click', async () => { writeHash(); try { await navigator.clipboard.writeText(location.href); cl.textContent = '복사했어요'; } catch (e) { cl.textContent = '복사가 막혀 있어요. 주소창 링크를 쓰세요'; } setTimeout(() => { cl.textContent = '이 경로 링크 복사'; }, 2500); });
     const cl2 = box.querySelector('.cands');
@@ -959,8 +1072,11 @@
     if (S.A.name) q.set('fn', S.A.name);
     if (S.B.name) q.set('tn', S.B.name);
     q.set('m', S.mode);
-    if (S.mode === 'summer-shade') q.set('h', S.hour);
+    if (S.mode === 'summer-shade') { q.set('h', S.hour); q.set('d', S.sumDay); }
+    if (S.mode === 'winter-sun') q.set('d', S.winDay);
     if (S.cap[S.mode] != null) q.set('c', Math.round(S.cap[S.mode] * 100));
+    const o = (S.opt.noSteps ? 's' : '') + (S.opt.quiet ? 'q' : '');
+    if (o) q.set('o', o);
     try { history.replaceState(null, '', '#' + q.toString()); } catch (e) { /* 일부 환경은 막혀 있어요 */ }
   }
   function readHash() { try { return Object.fromEntries(new URLSearchParams(location.hash.slice(1)).entries()); } catch (e) { return {}; } }
@@ -970,7 +1086,14 @@
   function init() {
     readColors();
     const h = readHash();
-    S.mode = E.MODES[h.m] ? h.m : defaultMode(new Date());
+    const t = todayKST();
+    S.sumDay = inMonths(t.m, [5, 9]) ? 'today' : 'rep';
+    S.winDay = inMonths(t.m, [11, 2]) ? 'today' : 'rep';
+    S.suggest = suggestMode(null);
+    S.mode = E.MODES[h.m] ? h.m : S.suggest.mode;
+    if (E.MODES[h.m]) S.modeTouched = true;
+    if (h.d === 'today' || h.d === 'rep') { if (S.mode === 'summer-shade') S.sumDay = h.d; if (S.mode === 'winter-sun') S.winDay = h.d; }
+    if (h.o) { S.opt.noSteps = h.o.includes('s'); S.opt.quiet = h.o.includes('q'); }
     if (h.h && isFinite(+h.h)) S.hour = Math.min(19.5, Math.max(7, +h.h));
     if (h.c && isFinite(+h.c)) S.cap[S.mode] = Math.min(0.8, Math.max(0, +h.c / 100));
     $('hour').value = S.hour; $('hour-out').textContent = fmtHour(S.hour); syncTimeChips();
@@ -992,6 +1115,18 @@
     if ('ResizeObserver' in window) new ResizeObserver(resize).observe(cv); else window.addEventListener('resize', resize);
     resize();
     schedule(0);
+    // 날씨는 늦게 와도 된다: 오면 문구를 바꾸고, 아직 모드를 직접 안 골랐으면 날씨에 맞는 모드로 바꾼다
+    loadWeather().then(wx => {
+      S.wx = wx; S.suggest = suggestMode(wx);
+      if (!S.modeTouched && S.suggest.mode !== S.mode) {
+        S.mode = S.suggest.mode;
+        // 날씨 때문에 고른 모드는 오늘 날짜(그리고 지금 시각)로 계산한다
+        if (S.mode === 'summer-shade' && canToday(S.mode)) { S.sumDay = 'today'; if (!h.h) setHourNow(); }
+        if (S.mode === 'winter-sun' && canToday(S.mode)) S.winDay = 'today';
+        renderSeasonTabs(); updateShadowLayer(); schedule(0);
+      }
+      else renderTodayNote();
+    });
   }
   window.SWApp = { S, get cur() { return cur; }, areas, setMode, setPoint, useExample, home, get V() { return V; }, setView(v) { Object.assign(V, v); draw(); }, drawNow, bump() { layerVer++; }, tiles, cells };
   init();

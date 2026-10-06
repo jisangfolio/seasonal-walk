@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>계절길</title>
+<meta name="description" content="서울시 가로수 데이터와 건물 그림자로 봄 꽃길, 여름 그늘길, 가을 단풍길, 겨울 볕길을 골라 주는 걷기 경로 실험">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hahmlet:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F2F3EF; --surface:#FBFBF9; --ink:#1D2420; --muted:#5B6560; --line:#D9DDD5; --accent:#24804F;
+  --land:#E6EAE2; --park:#D3E2C9; --water:#BFD6E4; --bld:#D2D7CC; --bld-edge:#BCC3B5; --road:#FFFFFF; --road-case:#C3C9BE; --path:#FDFDFB; --path-case:#C9CEC3;
+  --shadow:rgba(38,50,66,.30); --label:#38413C; --halo:#EEF1EA;
+  --short:#2E5E8C; --short-case:#FFFFFF; --pick:#1F7A49; --pick-case:#FFFFFF; --ice:#5FA0DA;
+  --t-faint:#AEB7AF; --t-cherry:#D9468A; --t-ipap:#16867F; --t-spring:#8558C4; --t-ginkgo:#D9A400; --t-female:#97225F;
+  --t-red:#C8412A; --t-zelk:#C2711F; --t-yellow:#9A8B00; --t-green:#3F8A44; --t-ever:#245A33; --station:#2E5E8C;
+  --spring:#D9468A; --summer:#C2711F; --autumn:#B5551F; --winter:#3F78B5;
+  --font-display:"Hahmlet","Noto Serif KR","Apple SD Gothic Neo",serif;
+  --font-body:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --font-data:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111513; --surface:#181D1A; --ink:#E4E9E3; --muted:#9BA59E; --line:#2A322E; --accent:#4CC27F;
+    --land:#151A17; --park:#18261C; --water:#13232E; --bld:#262D29; --bld-edge:#333B36; --road:#3A433E; --road-case:#262D29; --path:#333B36; --path-case:#232A26;
+    --shadow:rgba(0,0,0,.6); --label:#B6BFB8; --halo:#151A17;
+    --short:#79AEE3; --short-case:#111513; --pick:#4CC27F; --pick-case:#111513; --ice:#9CCBF2;
+    --t-faint:#48524B; --t-cherry:#F391BC; --t-ipap:#4FC7C0; --t-spring:#B794F0; --t-ginkgo:#F1C84A; --t-female:#E07AB7;
+    --t-red:#F07A5E; --t-zelk:#E6A15A; --t-yellow:#D7C64A; --t-green:#79B86E; --t-ever:#5FA471; --station:#79AEE3;
+    --spring:#F391BC; --summer:#E6A15A; --autumn:#F0905E; --winter:#86B6EA;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111513; --surface:#181D1A; --ink:#E4E9E3; --muted:#9BA59E; --line:#2A322E; --accent:#4CC27F;
+  --land:#151A17; --park:#18261C; --water:#13232E; --bld:#262D29; --bld-edge:#333B36; --road:#3A433E; --road-case:#262D29; --path:#333B36; --path-case:#232A26;
+  --shadow:rgba(0,0,0,.6); --label:#B6BFB8; --halo:#151A17;
+  --short:#79AEE3; --short-case:#111513; --pick:#4CC27F; --pick-case:#111513; --ice:#9CCBF2;
+  --t-faint:#48524B; --t-cherry:#F391BC; --t-ipap:#4FC7C0; --t-spring:#B794F0; --t-ginkgo:#F1C84A; --t-female:#E07AB7;
+  --t-red:#F07A5E; --t-zelk:#E6A15A; --t-yellow:#D7C64A; --t-green:#79B86E; --t-ever:#5FA471; --station:#79AEE3;
+  --spring:#F391BC; --summer:#E6A15A; --autumn:#F0905E; --winter:#86B6EA;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+button,select,input{font:inherit;color:inherit}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr)}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
+.brand b{font-family:var(--font-display);font-size:1.4rem;font-weight:600;letter-spacing:-.01em}
+.brand .tag{color:var(--muted);font-size:.84rem}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:3px;background:var(--bg)}
+.seg button{border:0;background:transparent;color:var(--muted);padding:6px 14px;border-radius:999px;cursor:pointer;font-size:.9rem}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 410px;min-height:0}
+.mapwrap{position:relative;min-height:0;overflow:hidden;background:var(--land)}
+#map{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#map.dragging{cursor:grabbing}
+.panel{min-height:0;overflow:auto;border-left:1px solid var(--line);padding:16px 18px 28px;background:var(--bg)}
+.zoom{position:absolute;top:12px;right:12px;display:flex;flex-direction:column;gap:6px}
+.zoom button{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 18px/1 var(--font-data);cursor:pointer}
+.north{position:absolute;top:12px;left:12px;font:500 11px/1 var(--font-data);color:var(--label);display:grid;justify-items:center;gap:2px;pointer-events:none}
+.north span:first-child{font-size:15px}
+.scale{position:absolute;left:12px;bottom:12px;font:500 11px/1 var(--font-data);color:var(--label);display:grid;gap:4px;pointer-events:none}
+.scale .sbar{height:6px;border:1.5px solid var(--label);border-top:0}
+.attr{position:absolute;right:10px;bottom:8px;margin:0;font-size:10.5px;color:var(--muted);background:var(--land);padding:2px 6px;border-radius:6px;pointer-events:none}
+.legend{position:absolute;left:12px;bottom:40px;display:flex;flex-wrap:wrap;gap:4px 10px;max-width:min(560px,calc(100% - 24px));padding:6px 10px;border-radius:10px;background:color-mix(in srgb,var(--surface) 88%,transparent);border:1px solid var(--line);font-size:.78rem;color:var(--ink);pointer-events:none}
+.lg{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.lg .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.lg .ln{width:18px;height:4px;border-radius:2px;display:inline-block}
+.lg .ln.ice{background:repeating-linear-gradient(90deg,var(--ice) 0 3px,transparent 3px 6px)}
+.lg .sq{width:11px;height:11px;border-radius:2px;background:var(--shadow);display:inline-block}
+.busy{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:.84rem;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.busy[hidden]{display:none}
+.spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.sec{display:grid;gap:10px;padding-bottom:16px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.od{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 8px;align-items:center}
+.odrow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:center;grid-column:1}
+.swap{grid-column:2;grid-row:1 / span 2;width:38px;height:76px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:18px}
+.arm{min-width:58px;padding:7px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:.86rem;color:var(--muted)}
+.arm[aria-pressed="true"]{border-color:var(--ink);color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1px var(--ink)}
+#arm-B[aria-pressed="true"]{border-color:var(--pick);color:var(--pick);box-shadow:inset 0 0 0 1px var(--pick)}
+select{width:100%;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface)}
+.hint,.fine{margin:0;font-size:.8rem;color:var(--muted)}
+.seasons{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.season{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:9px 0 7px;cursor:pointer;font-weight:600;position:relative;overflow:hidden}
+.season::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--c);opacity:.35}
+.season[aria-selected="true"]{border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c)}
+.season[aria-selected="true"]::after{opacity:1}
+.s-spring{--c:var(--spring)} .s-summer{--c:var(--summer)} .s-autumn{--c:var(--autumn)} .s-winter{--c:var(--winter)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips:empty{display:none}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:.86rem;cursor:pointer;color:var(--muted)}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.row{display:grid;gap:8px}
+.row[hidden]{display:none}
+.slider{display:grid;grid-template-columns:auto minmax(0,1fr) 3.4rem;align-items:center;gap:10px;font-size:.86rem;color:var(--muted)}
+.slider input{width:100%;accent-color:var(--accent)}
+.slider output{font-family:var(--font-data);font-size:.84rem;color:var(--ink);text-align:right}
+.note{margin:0;font-size:.86rem}
+.verdict{margin:0;font-size:1.02rem;line-height:1.5;text-wrap:pretty}
+.verdict b{font-weight:600}
+.verdict.good b:last-child{color:var(--pick)}
+.verdict.warn{color:var(--t-female)}
+.cards{display:grid;gap:10px}
+.card{border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--surface);display:grid;gap:6px;min-width:0}
+.card h3{margin:0;font-size:1rem;display:flex;align-items:center;gap:8px}
+.card h3 .ln{width:22px;height:5px;border-radius:3px;display:inline-block}
+.card .via{margin:0;font-size:.82rem;color:var(--muted)}
+.nums{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px}
+.num{font-family:var(--font-data);font-size:1.45rem;font-weight:500;line-height:1.1;font-variant-numeric:tabular-nums}
+.num small,.mval small{font-size:.55em;color:var(--muted);margin-left:2px}
+.delta{font-family:var(--font-data);font-size:.82rem;color:var(--muted)}
+.metric{display:flex;align-items:baseline;justify-content:space-between;gap:10px;border-top:1px dashed var(--line);padding-top:6px}
+.mlabel{font-size:.84rem;color:var(--muted)}
+.mval{font-family:var(--font-data);font-size:1.25rem;font-weight:500;font-variant-numeric:tabular-nums}
+.card.pick .mval{color:var(--pick)}
+.card .sub{margin:0;font-size:.8rem;color:var(--muted);overflow-wrap:anywhere}
+.cands{margin:2px 0 0;display:grid;gap:6px}
+.cands figcaption{font-size:.78rem;color:var(--muted)}
+.cands ol{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.cand{width:100%;display:grid;grid-template-columns:7.4rem minmax(0,1fr) 3.4rem;align-items:center;gap:10px;border:1px solid transparent;background:none;border-radius:8px;padding:5px 6px;cursor:pointer;text-align:left}
+.cand:hover{background:var(--surface)}
+.cand.on{border-color:var(--pick);background:var(--surface)}
+.cand.over{opacity:.45}
+.cand .lab{font-family:var(--font-data);font-size:.78rem;color:var(--muted);white-space:nowrap}
+.cand .lab b{font-weight:500;color:var(--ink)}
+.cand .track{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.cand .track span{display:block;height:100%;background:var(--pick)}
+.cand .v{font-family:var(--font-data);font-size:.82rem;text-align:right;font-variant-numeric:tabular-nums}
+.empty,.err{margin:0;color:var(--muted)}
+.linkbtn{border:0;background:none;padding:0;color:var(--accent);text-decoration:underline;text-underline-offset:3px;cursor:pointer;font-size:inherit}
+.fine:empty{display:none}
+.err{color:var(--t-female)}
+.about summary{cursor:pointer;font-weight:600}
+.about dl{display:grid;gap:6px;margin:10px 0 0;font-size:.84rem}
+.about dt{color:var(--muted);margin-top:6px}
+.about dd{margin:0}
+.about code{font-family:var(--font-data);font-size:.8em;background:var(--line);padding:1px 5px;border-radius:5px}
+.foot{margin-top:16px;font-size:.76rem;color:var(--muted)}
+.foot p{margin:0 0 4px}
+.foot a{color:inherit}
+@media (max-width:900px){
+  .app{height:auto;display:block}
+  .layout{grid-template-columns:minmax(0,1fr)}
+  .mapwrap{height:62vh;height:62svh;min-height:320px}
+  .panel{overflow:visible;border-left:0;border-top:1px solid var(--line);padding:16px 16px 32px}
+  .brand .tag{display:none}
+  .legend{bottom:36px;font-size:.74rem}
+}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="bar">
+    <div class="brand"><b>계절길</b><span class="tag">가로수 데이터로 고르는 사계절 걷기 경로 · 실험용 프로토타입</span></div>
+    <div class="seg" role="group" aria-label="지역">
+      <button type="button" data-area="jongno" aria-pressed="true">종로·광화문</button>
+      <button type="button" data-area="yeouido" aria-pressed="false">여의도</button>
+    </div>
+  </header>
+  <div class="layout">
+    <section class="mapwrap" aria-label="지도">
+      <canvas id="map" role="img" aria-label="출발지와 도착지, 최단 경로(파란 선)와 계절 경로(초록 선), 가로수 위치를 그린 지도. 경로 설명은 결과 카드에 있어요."></canvas>
+      <div class="north" aria-hidden="true"><span>↑</span><span>북</span></div>
+      <div class="zoom"><button type="button" id="z-in" aria-label="확대">+</button><button type="button" id="z-out" aria-label="축소">−</button><button type="button" id="z-home" aria-label="출발·도착에 맞추기">⌂</button></div>
+      <div class="scale" aria-hidden="true"><span id="scale-txt">100 m</span><div class="sbar" id="scale-bar"></div></div>
+      <div class="legend" id="legend"></div>
+      <p class="attr">© OpenStreetMap contributors · 가로수 © 서울특별시</p>
+      <div class="busy" id="busy" hidden><span class="spin"></span><span id="busy-txt">계산하고 있어요</span></div>
+    </section>
+    <aside class="panel">
+      <section class="sec" aria-label="출발지와 도착지">
+        <div class="od">
+          <div class="odrow"><button type="button" class="arm" id="arm-A" aria-pressed="false">출발</button><select id="sel-A" aria-label="출발지"></select></div>
+          <div class="odrow"><button type="button" class="arm" id="arm-B" aria-pressed="true">도착</button><select id="sel-B" aria-label="도착지"></select></div>
+          <button type="button" id="swap" class="swap" aria-label="출발지와 도착지 바꾸기">⇅</button>
+        </div>
+        <p class="hint">지도를 누르면 굵게 표시된 쪽(출발 또는 도착)이 그 자리로 옮겨가요. 지도 위 표지를 끌어서 옮길 수도 있어요.</p>
+        <p class="fine" id="area-note"></p>
+      </section>
+      <section class="sec" aria-label="계절 모드">
+        <div class="seasons" id="seasons" role="tablist" aria-label="계절"></div>
+        <p class="fine" id="today-note"></p>
+        <div class="chips" id="submodes" role="group" aria-label="세부 모드"></div>
+        <div id="time-row" class="row" hidden>
+          <div class="chips" id="time-chips"><button type="button" class="chip" data-h="8.5">출근 08:30</button><button type="button" class="chip" data-h="13">점심 13:00</button><button type="button" class="chip" data-h="18.5">퇴근 18:30</button></div>
+          <label class="slider">시각 <input type="range" id="hour" min="7" max="19.5" step="0.5"><output id="hour-out"></output></label>
+        </div>
+        <div id="winter-row" class="row" hidden>
+          <label class="slider">지도 그림자 <input type="range" id="whour" min="9" max="16" step="1"><output id="whour-out"></output></label>
+        </div>
+        <p class="note" id="season-note"></p>
+        <p class="fine" id="sun-info"></p>
+        <label class="slider">더 걸어도 되는 거리 <input type="range" id="cap" min="0" max="60" step="5"><output id="cap-out"></output></label>
+      </section>
+      <section class="sec" id="result" aria-live="polite"><p class="empty">데이터를 불러오고 있어요.</p></section>
+      <details class="about">
+        <summary>어떻게 계산하나요</summary>
+        <dl>
+          <dt>나무와 길</dt><dd>나무마다 25m 안에서 가장 가까운 보행 구간에 붙이고, 8m 안이면 그 구간에도 붙여요. 카드의 그루 수는 경로 선에서 15m 안에 있는 가로수예요.</dd>
+          <dt>꽃길·단풍길</dt><dd><code>구간 길이 × max(바닥값, 1 − K × 나무 밀도)</code>로 나무가 촘촘한 구간을 짧게 쳐줘요. 단풍길은 은행 암나무 한 그루마다 60m를 더해요.</dd>
+          <dt>은행 냄새 피하기</dt><dd><code>구간 길이 + P × 은행 암나무 수</code></dd>
+          <dt>그늘길</dt><dd>건물 바닥을 해 반대쪽으로 높이만큼 늘린 그림자와 가로수 수관 그림자를 1.5m 격자로 그리고, 3m 간격 점마다 그늘인지 봐요. 차도는 양쪽 보도 중 그늘진 쪽을 걷는다고 봐요. 비용은 <code>구간 길이 × (1 + w × 해 드는 비율)</code>이에요.</dd>
+          <dt>볕길</dt><dd>1월 15일 9~16시 정시 8번의 그림자로 하루 볕 드는 시간을 세요. 2시간 미만이면 응달이에요. 겨울엔 잎이 지므로 상록수 그림자만 넣어요.</dd>
+          <dt>경로 고르기</dt><dd>가중치를 여러 값으로 바꿔 가며 경로 후보를 만들어요. 우회 한도 안에서 효과가 가장 큰 후보의 90% 이상을 내는 경로 가운데 가장 짧은 것을 골라요. 걷는 시간은 분당 75m 기준이에요.</dd>
+          <dt>건물 높이</dt><dd>OpenStreetMap의 높이·층수(층당 3.3m)를 쓰고, 없으면 바닥 면적으로 2~10층을 추정해요. 종로 일대는 대부분 추정값이에요.</dd>
+          <dt>한계</dt><dd>경사, 가게 차양과 아케이드, 실제 눈과 제설, 공원 안 나무(가로수 데이터에 없음), 지하보도는 반영하지 않아요. 여의도 데이터에는 은행 암나무 표시가 없어요.</dd>
+        </dl>
+      </details>
+      <footer class="foot">
+        <p>가로수: 서울특별시 「서울시 가로수 위치 정보」(2026년 9월 30일 기준). 위도·경도·수종·노선 값을 바꾸지 않고 그대로 담았어요. 공공누리 제4유형(출처표시·상업적 이용금지·변경금지).</p>
+        <p>도로·건물·공원: © OpenStreetMap contributors, ODbL. 벚꽃 개화일: 기상청 보도자료(2026년 3월 29일).</p>
+        <p>개인 실험용 비상업 프로토타입이에요. 실제 길 상태와 다를 수 있어요.</p>
+      </footer>
+    </aside>
+  </div>
+</div>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
